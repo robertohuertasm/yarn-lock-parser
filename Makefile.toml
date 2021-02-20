@@ -1,0 +1,32 @@
+[tasks.watch-test]
+install_crate = "cargo-watch"
+command = "cargo"
+args = ["watch", "-x", "test"]
+
+[tasks.format]
+install_crate = "rustfmt"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.clippy]
+install_crate = "cargo-clippy"
+command = "cargo"
+args = ["clippy"]
+
+[tasks.clippy-z]
+install_crate = "cargo-clippy"
+toolchain = "nightly"
+command = "cargo"
+args = ["clippy", "-Z", "unstable-options"]
+
+[tasks.clippy-pedantic]
+install_crate = "cargo-clippy"
+command = "cargo"
+args = ["clippy", "--all", "--", "-D", "clippy::pedantic", "-D", "clippy::nursery", "-D", "warnings"]
+
+[tasks.all]
+dependencies = [
+    "format",
+    "clippy",
+    "test"
+]
