@@ -31,8 +31,8 @@ pub enum YarnLockError {
 /// It only shows the name of the dependency and the version.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Entry<'a> {
-    name: &'a str,
-    version: &'a str,
+    pub name: &'a str,
+    pub version: &'a str,
 }
 
 /// Accepts the `yarn.lock` content and returns all the entries.
