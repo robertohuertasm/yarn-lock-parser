@@ -178,7 +178,7 @@ mod tests {
     integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==
         dependencies:
             "@babel/highlight" "^7.12.13"
-            
+
 "@babel/helper-validator-identifier@^7.12.11":
     version "7.12.11"
     resolved "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed"
@@ -213,7 +213,7 @@ mod tests {
     integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==
     dependencies:
         "@babel/highlight" "^7.12.13"
-           
+
  "#,
             Entry {
                 name: "@babel/code-frame",
