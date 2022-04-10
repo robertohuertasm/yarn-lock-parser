@@ -29,10 +29,11 @@ pub enum YarnLockError {
 
 /// yarn.lock entry.
 /// It only shows the name of the dependency and the version.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct Entry<'a> {
     pub name: &'a str,
     pub version: &'a str,
+    pub dependencies: Vec<Entry<'a>>,
 }
 
 /// Accepts the `yarn.lock` content and returns all the entries.
@@ -90,7 +91,14 @@ fn entry(input: &str) -> Res<&str, Entry> {
 fn parse_entry(input: &str) -> Res<&str, Entry> {
     context("entry", tuple((entry_name, entry_version)))(input).map(|(next_input, res)| {
         let (name, version) = res;
-        (next_input, Entry { name, version })
+        (
+            next_input,
+            Entry {
+                name,
+                version,
+                ..Default::default()
+            },
+        )
     })
 }
 
@@ -138,6 +146,7 @@ mod tests {
             &Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
+                ..Default::default()
             }
         );
 
@@ -146,6 +155,7 @@ mod tests {
             &Entry {
                 name: "yargs",
                 version: "9.0.1",
+                ..Default::default()
             }
         );
     }
@@ -178,10 +188,12 @@ mod tests {
                 Entry {
                     name: "@babel/code-frame",
                     version: "7.12.13",
+                    ..Default::default()
                 },
                 Entry {
                     name: "@babel/helper-validator-identifier",
                     version: "7.12.11",
+                    ..Default::default()
                 },
             ],
         );
@@ -206,6 +218,7 @@ mod tests {
             Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
+                ..Default::default()
             },
         );
         // with final spaces
@@ -214,11 +227,12 @@ mod tests {
     version "7.12.11"
     resolved "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed"
     integrity sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==
-           
+
  "#,
             Entry {
                 name: "@babel/helper-validator-identifier",
                 version: "7.12.11",
+                ..Default::default()
             },
         );
         // without final spaces
@@ -232,6 +246,7 @@ mod tests {
             Entry {
                 name: "@babel/helper-validator-identifier",
                 version: "7.12.11",
+                ..Default::default()
             },
         );
     }
@@ -255,6 +270,7 @@ mod tests {
             Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
+                ..Default::default()
             },
         );
     }
