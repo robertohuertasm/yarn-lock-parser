@@ -1,14 +1,14 @@
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take, take_until},
+    bytes::complete::{is_not, tag, take, take_until},
     character::{
         complete::{newline, space0},
         streaming::multispace0,
     },
     combinator::{eof, opt, recognize},
     error::{context, VerboseError},
-    multi::{count, many0, many_till},
-    sequence::{delimited, tuple},
+    multi::{count, many0, many_till, separated_list1},
+    sequence::{delimited, terminated, tuple},
     AsChar, IResult,
 };
 
@@ -107,6 +107,26 @@ fn entry_name(input: &str) -> Res<&str, &str> {
     let opt_at = opt(tag("@"));
     let name = tuple((opt_at, take_until("@")));
     context("name", recognize(name))(i)
+}
+
+fn entry_single_descriptor(input: &str) -> Res<&str, &str> {
+    context(
+        "single_descriptor",
+        alt((
+            delimited(tag("\""), take_until("\""), tag("\"")),
+            is_not(",:"),
+        )),
+    )(input)
+}
+
+fn entry_descriptors(input: &str) -> Res<&str, Vec<&str>> {
+    context(
+        "descriptors",
+        terminated(
+            separated_list1(tag(", "), entry_single_descriptor),
+            tag(":"),
+        ),
+    )(input)
 }
 
 fn entry_version(input: &str) -> Res<&str, &str> {
@@ -316,5 +336,41 @@ mod tests {
         );
         assert(r#"ansi-escapes@^3.0.0:"#, "ansi-escapes");
         assert(r#"arr-flatten@^1.0.1, arr-flatten@^1.1.0:"#, "arr-flatten");
+    }
+
+    #[test]
+    fn entry_descriptors_works() {
+        fn assert(input: &str, expect: Vec<&str>) {
+            let res = entry_descriptors(input).unwrap();
+            assert_eq!(res.1, expect);
+        }
+
+        assert(
+            r#"abab@^1.0.3:
+            version "1.0.4"
+        "#,
+            vec!["abab@^1.0.3"],
+        );
+
+        assert(
+            r#""@nodelib/fs.stat@2.0.3":
+            version "2.0.3"
+        "#,
+            vec!["@nodelib/fs.stat@2.0.3"],
+        );
+
+        assert(
+            r#"abab@^1.0.3, abab@^1.0.4:
+            version "1.0.4"
+        "#,
+            vec!["abab@^1.0.3", "abab@^1.0.4"],
+        );
+
+        assert(
+            r#""@nodelib/fs.stat@2.0.3", "@nodelib/fs.stat@^2.0.2":
+            version "2.0.3"
+        "#,
+            vec!["@nodelib/fs.stat@2.0.3", "@nodelib/fs.stat@^2.0.2"],
+        );
     }
 }
