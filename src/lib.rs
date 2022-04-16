@@ -34,6 +34,7 @@ pub struct Entry<'a> {
     pub name: &'a str,
     pub version: &'a str,
     pub dependencies: Vec<Entry<'a>>,
+    pub descriptors: Vec<&'a str>,
 }
 
 /// Accepts the `yarn.lock` content and returns all the entries.
@@ -89,13 +90,21 @@ fn entry(input: &str) -> Res<&str, Entry> {
 }
 
 fn parse_entry(input: &str) -> Res<&str, Entry> {
-    context("entry", tuple((entry_name, entry_version)))(input).map(|(next_input, res)| {
-        let (name, version) = res;
+    context("entry", tuple((entry_descriptors, entry_version)))(input).map(|(next_input, res)| {
+        let (descriptors, version) = res;
+
+        // descriptors is guaranteed to be of length >= 1
+        let first_descriptor = descriptors.get(0).expect("Somehow descriptors is empty");
+
+        // XXX TODO should not use `expect`, but we are mapping the `ok` part
+        let (_, name) = entry_name(first_descriptor).expect("Error parsing name");
+
         (
             next_input,
             Entry {
                 name,
                 version,
+                descriptors,
                 ..Default::default()
             },
         )
@@ -166,6 +175,7 @@ mod tests {
             &Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
+                descriptors: vec!["@babel/code-frame@^7.0.0"],
                 ..Default::default()
             }
         );
@@ -175,6 +185,7 @@ mod tests {
             &Entry {
                 name: "yargs",
                 version: "9.0.1",
+                descriptors: vec!["yargs@^9.0.0"],
                 ..Default::default()
             }
         );
@@ -208,11 +219,13 @@ mod tests {
                 Entry {
                     name: "@babel/code-frame",
                     version: "7.12.13",
+                    descriptors: vec!["@babel/code-frame@^7.0.0"],
                     ..Default::default()
                 },
                 Entry {
                     name: "@babel/helper-validator-identifier",
                     version: "7.12.11",
+                    descriptors: vec!["@babel/helper-validator-identifier@^7.12.11"],
                     ..Default::default()
                 },
             ],
@@ -238,6 +251,7 @@ mod tests {
             Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
+                descriptors: vec!["@babel/code-frame@^7.0.0"],
                 ..Default::default()
             },
         );
@@ -252,6 +266,7 @@ mod tests {
             Entry {
                 name: "@babel/helper-validator-identifier",
                 version: "7.12.11",
+                descriptors: vec!["@babel/helper-validator-identifier@^7.12.11"],
                 ..Default::default()
             },
         );
@@ -266,6 +281,7 @@ mod tests {
             Entry {
                 name: "@babel/helper-validator-identifier",
                 version: "7.12.11",
+                descriptors: vec!["@babel/helper-validator-identifier@^7.12.11"],
                 ..Default::default()
             },
         );
@@ -290,6 +306,7 @@ mod tests {
             Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
+                descriptors: vec!["@babel/code-frame@^7.0.0"],
                 ..Default::default()
             },
         );
