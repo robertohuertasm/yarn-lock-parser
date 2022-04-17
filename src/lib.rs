@@ -5,7 +5,7 @@ use nom::{
         complete::{line_ending, newline, space0, space1},
         streaming::multispace0,
     },
-    combinator::{eof, opt, recognize},
+    combinator::{eof, recognize},
     error::{context, VerboseError},
     multi::{count, many0, many1, many_till, separated_list1},
     sequence::{delimited, terminated, tuple},
@@ -34,7 +34,7 @@ pub struct Entry<'a> {
     pub name: &'a str,
     pub version: &'a str,
     pub dependencies: Vec<(&'a str, &'a str)>,
-    pub descriptors: Vec<&'a str>,
+    pub descriptors: Vec<(&'a str, &'a str)>,
 }
 
 /// Accepts the `yarn.lock` content and returns all the entries.
@@ -112,8 +112,7 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
             // descriptors is guaranteed to be of length >= 1
             let first_descriptor = descriptors.get(0).expect("Somehow descriptors is empty");
 
-            // XXX TODO should not use `expect`, but we are mapping the `ok` part
-            let (_, name) = entry_name(first_descriptor).expect("Error parsing name");
+            let name = first_descriptor.0;
 
             let mut version = "";
             let mut dependencies = Vec::new();
@@ -160,13 +159,6 @@ fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
         .map(|(i, res)| (i, EntryItem::Dependencies(res)))
 }
 
-fn entry_name(input: &str) -> Res<&str, &str> {
-    let (i, _) = opt(tag(r#"""#))(input)?;
-    let opt_at = opt(tag("@"));
-    let name = tuple((opt_at, take_until("@")));
-    context("name", recognize(name))(i)
-}
-
 /**
  * Simple version, it doesn't consider escaped quotes since in our scenarios
  * it can't happen.
@@ -187,7 +179,7 @@ fn entry_single_descriptor(input: &str) -> Res<&str, &str> {
     context("single_descriptor", alt((double_quoted_text, is_not(",:"))))(input)
 }
 
-fn entry_descriptors(input: &str) -> Res<&str, Vec<&str>> {
+fn entry_descriptors(input: &str) -> Res<&str, Vec<(&str, &str)>> {
     context(
         "descriptors",
         terminated(
@@ -195,6 +187,13 @@ fn entry_descriptors(input: &str) -> Res<&str, Vec<&str>> {
             tuple((tag(":"), line_ending)),
         ),
     )(input)
+    .map(|(i, res)| {
+        let x = res
+            .into_iter()
+            .map(|desc: &str| desc.rsplit_once("@").unwrap())
+            .collect();
+        return (i, x);
+    })
 }
 
 fn entry_version(input: &str) -> Res<&str, EntryItem> {
@@ -238,7 +237,7 @@ mod tests {
             &Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
-                descriptors: vec!["@babel/code-frame@^7.0.0"],
+                descriptors: vec![("@babel/code-frame", "^7.0.0")],
                 dependencies: vec![("@babel/highlight", "^7.12.13")],
                 ..Default::default()
             }
@@ -249,7 +248,7 @@ mod tests {
             &Entry {
                 name: "yargs",
                 version: "9.0.1",
-                descriptors: vec!["yargs@^9.0.0"],
+                descriptors: vec![("yargs", "^9.0.0")],
                 dependencies: vec![
                     ("camelcase", "^4.1.0"),
                     ("cliui", "^3.2.0"),
@@ -298,14 +297,14 @@ mod tests {
                 Entry {
                     name: "@babel/code-frame",
                     version: "7.12.13",
-                    descriptors: vec!["@babel/code-frame@^7.0.0"],
+                    descriptors: vec![("@babel/code-frame", "^7.0.0")],
                     dependencies: vec![("@babel/highlight", "^7.12.13")],
                     ..Default::default()
                 },
                 Entry {
                     name: "@babel/helper-validator-identifier",
                     version: "7.12.11",
-                    descriptors: vec!["@babel/helper-validator-identifier@^7.12.11"],
+                    descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
                     ..Default::default()
                 },
             ],
@@ -331,7 +330,7 @@ mod tests {
             Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
-                descriptors: vec!["@babel/code-frame@^7.0.0"],
+                descriptors: vec![("@babel/code-frame", "^7.0.0")],
                 dependencies: vec![("@babel/highlight", "^7.12.13")],
                 ..Default::default()
             },
@@ -347,7 +346,7 @@ mod tests {
             Entry {
                 name: "@babel/helper-validator-identifier",
                 version: "7.12.11",
-                descriptors: vec!["@babel/helper-validator-identifier@^7.12.11"],
+                descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
                 ..Default::default()
             },
         );
@@ -362,7 +361,7 @@ mod tests {
             Entry {
                 name: "@babel/helper-validator-identifier",
                 version: "7.12.11",
-                descriptors: vec!["@babel/helper-validator-identifier@^7.12.11"],
+                descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
                 ..Default::default()
             },
         );
@@ -387,7 +386,7 @@ mod tests {
             Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
-                descriptors: vec!["@babel/code-frame@^7.0.0"],
+                descriptors: vec![("@babel/code-frame", "^7.0.0")],
                 dependencies: vec![("@babel/highlight", "^7.12.13")],
                 ..Default::default()
             },
@@ -413,33 +412,8 @@ mod tests {
     }
 
     #[test]
-    fn entry_name_works() {
-        fn assert(input: &str, expect: &str) {
-            let res = entry_name(input).unwrap();
-            assert_eq!(res.1, expect);
-        }
-
-        assert(
-            r#""@babel/code-frame@^7.0.0":
-    version "7.12.13"
-    resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658"
-    integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==
-    dependencies:
-        "@babel/highlight" "^7.12.13""#,
-            "@babel/code-frame",
-        );
-        assert(r#""@babel/code-frame@^7.0.0":"#, "@babel/code-frame");
-        assert(
-            r#""@babel/helper-validator-identifier@^7.12.11":"#,
-            "@babel/helper-validator-identifier",
-        );
-        assert(r#"ansi-escapes@^3.0.0:"#, "ansi-escapes");
-        assert(r#"arr-flatten@^1.0.1, arr-flatten@^1.1.0:"#, "arr-flatten");
-    }
-
-    #[test]
     fn entry_descriptors_works() {
-        fn assert(input: &str, expect: Vec<&str>) {
+        fn assert(input: &str, expect: Vec<(&str, &str)>) {
             let res = entry_descriptors(input).unwrap();
             assert_eq!(res.1, expect);
         }
@@ -448,28 +422,31 @@ mod tests {
             r#"abab@^1.0.3:
             version "1.0.4"
         "#,
-            vec!["abab@^1.0.3"],
+            vec![("abab", "^1.0.3")],
         );
 
         assert(
             r#""@nodelib/fs.stat@2.0.3":
             version "2.0.3"
         "#,
-            vec!["@nodelib/fs.stat@2.0.3"],
+            vec![("@nodelib/fs.stat", "2.0.3")],
         );
 
         assert(
             r#"abab@^1.0.3, abab@^1.0.4:
             version "1.0.4"
         "#,
-            vec!["abab@^1.0.3", "abab@^1.0.4"],
+            vec![("abab", "^1.0.3"), ("abab", "^1.0.4")],
         );
 
         assert(
             r#""@nodelib/fs.stat@2.0.3", "@nodelib/fs.stat@^2.0.2":
             version "2.0.3"
         "#,
-            vec!["@nodelib/fs.stat@2.0.3", "@nodelib/fs.stat@^2.0.2"],
+            vec![
+                ("@nodelib/fs.stat", "2.0.3"),
+                ("@nodelib/fs.stat", "^2.0.2"),
+            ],
         );
     }
 
