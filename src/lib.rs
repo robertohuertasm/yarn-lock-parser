@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_until},
     character::{
-        complete::{newline, space0},
+        complete::{line_ending, newline, space0},
         streaming::multispace0,
     },
     combinator::{eof, opt, recognize},
@@ -133,7 +133,7 @@ fn entry_descriptors(input: &str) -> Res<&str, Vec<&str>> {
         "descriptors",
         terminated(
             separated_list1(tag(", "), entry_single_descriptor),
-            tag(":"),
+            tuple((tag(":"), line_ending)),
         ),
     )(input)
 }
@@ -142,7 +142,10 @@ fn entry_version(input: &str) -> Res<&str, &str> {
     let (i, _) = take_until(r#"version ""#)(input)?;
     context(
         "version",
-        delimited(tag(r#"version ""#), is_version, tag(r#"""#)),
+        terminated(
+            delimited(tag(r#"version ""#), is_version, tag(r#"""#)),
+            line_ending,
+        ),
     )(i)
 }
 
