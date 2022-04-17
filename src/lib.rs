@@ -2,12 +2,12 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_until},
     character::{
-        complete::{line_ending, newline, space0},
+        complete::{line_ending, newline, space0, space1},
         streaming::multispace0,
     },
     combinator::{eof, opt, recognize},
     error::{context, VerboseError},
-    multi::{count, many0, many_till, separated_list1},
+    multi::{count, many0, many1, many_till, separated_list1},
     sequence::{delimited, terminated, tuple},
     AsChar, IResult,
 };
@@ -33,7 +33,7 @@ pub enum YarnLockError {
 pub struct Entry<'a> {
     pub name: &'a str,
     pub version: &'a str,
-    pub dependencies: Vec<Entry<'a>>,
+    pub dependencies: Vec<(&'a str, &'a str)>,
     pub descriptors: Vec<&'a str>,
 }
 
@@ -89,26 +89,75 @@ fn entry(input: &str) -> Res<&str, Entry> {
     })
 }
 
+#[derive(PartialEq, Debug)]
+enum EntryItem<'a> {
+    Version(&'a str),
+    Dependencies(Vec<(&'a str, &'a str)>),
+    Unknown(&'a str),
+}
+
+fn unknown_line(input: &str) -> Res<&str, EntryItem> {
+    take_till_line_end(input).map(|(i, res)| (i, EntryItem::Unknown(res)))
+}
+
+fn entry_item(input: &str) -> Res<&str, EntryItem> {
+    alt((entry_version, parse_dependencies, unknown_line))(input)
+}
+
 fn parse_entry(input: &str) -> Res<&str, Entry> {
-    context("entry", tuple((entry_descriptors, entry_version)))(input).map(|(next_input, res)| {
-        let (descriptors, version) = res;
+    context("entry", tuple((entry_descriptors, many1(entry_item))))(input).map(
+        |(next_input, res)| {
+            let (descriptors, entry_items) = res;
 
-        // descriptors is guaranteed to be of length >= 1
-        let first_descriptor = descriptors.get(0).expect("Somehow descriptors is empty");
+            // descriptors is guaranteed to be of length >= 1
+            let first_descriptor = descriptors.get(0).expect("Somehow descriptors is empty");
 
-        // XXX TODO should not use `expect`, but we are mapping the `ok` part
-        let (_, name) = entry_name(first_descriptor).expect("Error parsing name");
+            // XXX TODO should not use `expect`, but we are mapping the `ok` part
+            let (_, name) = entry_name(first_descriptor).expect("Error parsing name");
 
-        (
-            next_input,
-            Entry {
-                name,
-                version,
-                descriptors,
-                ..Default::default()
-            },
-        )
-    })
+            let mut version = "";
+            let mut dependencies = Vec::new();
+
+            for ei in entry_items {
+                match ei {
+                    EntryItem::Version(v) => version = v,
+                    EntryItem::Dependencies(d) => dependencies = d,
+                    EntryItem::Unknown(_) => (),
+                }
+            }
+
+            assert_ne!(version, "");
+
+            (
+                next_input,
+                Entry {
+                    name,
+                    version,
+                    descriptors,
+                    dependencies,
+                    ..Default::default()
+                },
+            )
+        },
+    )
+}
+
+fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
+    let (input, (indent, _, _)) = tuple((space1, tag("dependencies:"), line_ending))(input)?;
+
+    let dependencies_parser = many1(move |i| {
+        tuple((
+            tag(indent),                    // indented as much as the parent...
+            space1,                         // ... plus extra indentation
+            double_quoted_text_or_unquoted, // package name
+            space1,
+            double_quoted_text, // version
+            line_ending,
+        ))(i)
+        .map(|(i, (_, _, p, _, v, _))| (i, (p, v)))
+    });
+    context("dependencies", dependencies_parser)(input)
+        .map(|(i, res)| (i, EntryItem::Dependencies(res)))
 }
 
 fn entry_name(input: &str) -> Res<&str, &str> {
@@ -118,14 +167,24 @@ fn entry_name(input: &str) -> Res<&str, &str> {
     context("name", recognize(name))(i)
 }
 
+/**
+ * Simple version, it doesn't consider escaped quotes since in our scenarios
+ * it can't happen.
+ */
+fn double_quoted_text(input: &str) -> Res<&str, &str> {
+    delimited(tag("\""), take_until("\""), tag("\""))(input)
+}
+
+fn space_delimited_word(input: &str) -> Res<&str, &str> {
+    is_not(" \t\r\n")(input)
+}
+
+fn double_quoted_text_or_unquoted(input: &str) -> Res<&str, &str> {
+    alt((double_quoted_text, space_delimited_word))(input)
+}
+
 fn entry_single_descriptor(input: &str) -> Res<&str, &str> {
-    context(
-        "single_descriptor",
-        alt((
-            delimited(tag("\""), take_until("\""), tag("\"")),
-            is_not(",:"),
-        )),
-    )(input)
+    context("single_descriptor", alt((double_quoted_text, is_not(",:"))))(input)
 }
 
 fn entry_descriptors(input: &str) -> Res<&str, Vec<&str>> {
@@ -138,7 +197,7 @@ fn entry_descriptors(input: &str) -> Res<&str, Vec<&str>> {
     )(input)
 }
 
-fn entry_version(input: &str) -> Res<&str, &str> {
+fn entry_version(input: &str) -> Res<&str, EntryItem> {
     let (i, _) = take_until(r#"version ""#)(input)?;
     context(
         "version",
@@ -147,6 +206,7 @@ fn entry_version(input: &str) -> Res<&str, &str> {
             line_ending,
         ),
     )(i)
+    .map(|(i, version)| (i, EntryItem::Version(version)))
 }
 
 fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
@@ -179,6 +239,7 @@ mod tests {
                 name: "@babel/code-frame",
                 version: "7.12.13",
                 descriptors: vec!["@babel/code-frame@^7.0.0"],
+                dependencies: vec![("@babel/highlight", "^7.12.13")],
                 ..Default::default()
             }
         );
@@ -189,6 +250,21 @@ mod tests {
                 name: "yargs",
                 version: "9.0.1",
                 descriptors: vec!["yargs@^9.0.0"],
+                dependencies: vec![
+                    ("camelcase", "^4.1.0"),
+                    ("cliui", "^3.2.0"),
+                    ("decamelize", "^1.1.1"),
+                    ("get-caller-file", "^1.0.1"),
+                    ("os-locale", "^2.0.0"),
+                    ("read-pkg-up", "^2.0.0"),
+                    ("require-directory", "^2.1.1"),
+                    ("require-main-filename", "^1.0.1"),
+                    ("set-blocking", "^2.0.0"),
+                    ("string-width", "^2.0.0"),
+                    ("which-module", "^2.0.0"),
+                    ("y18n", "^3.2.1"),
+                    ("yargs-parser", "^7.0.0"),
+                ],
                 ..Default::default()
             }
         );
@@ -223,6 +299,7 @@ mod tests {
                     name: "@babel/code-frame",
                     version: "7.12.13",
                     descriptors: vec!["@babel/code-frame@^7.0.0"],
+                    dependencies: vec![("@babel/highlight", "^7.12.13")],
                     ..Default::default()
                 },
                 Entry {
@@ -255,6 +332,7 @@ mod tests {
                 name: "@babel/code-frame",
                 version: "7.12.13",
                 descriptors: vec!["@babel/code-frame@^7.0.0"],
+                dependencies: vec![("@babel/highlight", "^7.12.13")],
                 ..Default::default()
             },
         );
@@ -310,6 +388,7 @@ mod tests {
                 name: "@babel/code-frame",
                 version: "7.12.13",
                 descriptors: vec!["@babel/code-frame@^7.0.0"],
+                dependencies: vec![("@babel/highlight", "^7.12.13")],
                 ..Default::default()
             },
         );
@@ -319,7 +398,7 @@ mod tests {
     fn entry_version_works() {
         fn assert(input: &str, expect: &str) {
             let res = entry_version(input).unwrap();
-            assert_eq!(res.1, expect);
+            assert!(matches!(res.1, EntryItem::Version(v) if v == expect));
         }
 
         assert(
@@ -391,6 +470,34 @@ mod tests {
             version "2.0.3"
         "#,
             vec!["@nodelib/fs.stat@2.0.3", "@nodelib/fs.stat@^2.0.2"],
+        );
+    }
+
+    #[test]
+    fn space_delimited_word_works() {
+        let res = space_delimited_word("foo ");
+        assert_eq!(res, Ok((" ", "foo")));
+    }
+
+    #[test]
+    fn unknown_line_works() {
+        let res = unknown_line("foo\nbar").unwrap();
+        assert_eq!(res, ("bar", EntryItem::Unknown("foo\n")));
+    }
+
+    #[test]
+    fn parse_dependencies_work() {
+        fn assert(input: &str, expect: EntryItem) {
+            let res = parse_dependencies(input).unwrap();
+            assert_eq!(res.1, expect);
+        }
+
+        assert(
+            r#"            dependencies:
+                foo "1.0"
+                "bar" "0.3-alpha1"
+        "#,
+            EntryItem::Dependencies(vec![("foo", "1.0"), ("bar", "0.3-alpha1")]),
         );
     }
 }
