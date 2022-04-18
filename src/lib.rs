@@ -132,9 +132,8 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
                 Entry {
                     name,
                     version,
-                    descriptors,
                     dependencies,
-                    ..Default::default()
+                    descriptors,
                 },
             )
         },
@@ -190,9 +189,9 @@ fn entry_descriptors(input: &str) -> Res<&str, Vec<(&str, &str)>> {
     .map(|(i, res)| {
         let x = res
             .into_iter()
-            .map(|desc: &str| desc.rsplit_once("@").unwrap())
+            .map(|desc: &str| desc.rsplit_once('@').unwrap())
             .collect();
-        return (i, x);
+        (i, x)
     })
 }
 
