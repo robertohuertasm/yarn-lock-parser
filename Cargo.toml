@@ -1,7 +1,7 @@
 [package]
 name = "yarn-lock-parser"
 description = "yarn.lock parser"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Roberto Huertas <roberto.huertas@outlook.com>"]
 edition = "2018"
 license = "MIT"
@@ -19,5 +19,5 @@ exclude = [
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-nom = "6.1.2"
+nom = "7.1.1"
 thiserror = "1.0.24"
