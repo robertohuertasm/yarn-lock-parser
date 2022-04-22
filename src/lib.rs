@@ -54,6 +54,7 @@ pub fn parse_str(content: &str) -> Result<Vec<Entry>, YarnLockError> {
 
 fn parse(input: &str) -> Res<&str, Vec<Entry>> {
     let (i, _) = yarn_lock_header(input)?;
+    let (i, _) = opt(yarn_lock_metadata)(i)?;
     let (i, mut entries) = many0(entry)(i)?;
     let (i, final_entry) = entry_final(i)?;
     entries.push(final_entry);
@@ -69,6 +70,18 @@ fn take_till_line_end(input: &str) -> Res<&str, &str> {
 
 fn yarn_lock_header(input: &str) -> Res<&str, &str> {
     recognize(tuple((count(take_till_line_end, 2), multispace0)))(input)
+}
+
+fn yarn_lock_metadata(input: &str) -> Res<&str, &str> {
+    context(
+        "metadata",
+        recognize(tuple((
+            tag("__metadata:"),
+            take_till_line_end,
+            many_till(take_till_line_end, recognize(tuple((space0, newline)))),
+            multispace0,
+        ))),
+    )(input)
 }
 
 fn entry_final(input: &str) -> Res<&str, Entry> {
