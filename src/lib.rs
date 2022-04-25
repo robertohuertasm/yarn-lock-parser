@@ -209,15 +209,20 @@ fn entry_descriptors(input: &str) -> Res<&str, Vec<(&str, &str)>> {
 }
 
 fn entry_version(input: &str) -> Res<&str, EntryItem> {
-    let (i, _) = take_until(r#"version ""#)(input)?;
     context(
         "version",
-        terminated(
-            delimited(tag(r#"version ""#), is_version, tag(r#"""#)),
+        tuple((
+            space1,
+            tag("version"),
+            opt(tag(":")),
+            space1,
+            opt(tag("\"")),
+            is_version,
+            opt(tag("\"")),
             line_ending,
-        ),
-    )(i)
-    .map(|(i, version)| (i, EntryItem::Version(version)))
+        )),
+    )(input)
+    .map(|(i, (_, _, _, _, _, version, _, _))| (i, EntryItem::Version(version)))
 }
 
 fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
@@ -407,20 +412,19 @@ mod tests {
 
     #[test]
     fn entry_version_works() {
-        fn assert(input: &str, expect: &str) {
-            let res = entry_version(input).unwrap();
-            assert!(matches!(res.1, EntryItem::Version(v) if v == expect));
-        }
-
-        assert(
-            r#"@^7.0.0":
-    version "7.12.13"
-    resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658"
-    integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==
-    dependencies:
-        "@babel/highlight" "^7.12.13""#,
-            "7.12.13",
+        assert_eq!(
+            entry_version("  version \"1.2.3\"\n"),
+            Ok(("", EntryItem::Version("1.2.3")))
         );
+        assert_eq!(
+            entry_version("  version \"1.2.3-beta1\"\n"),
+            Ok(("", EntryItem::Version("1.2.3-beta1")))
+        );
+        assert_eq!(
+            entry_version("  version: 1.2.3\n"),
+            Ok(("", EntryItem::Version("1.2.3")))
+        );
+        assert!(entry_version("    node-version: 1.0.0\n").is_err());
     }
 
     #[test]
@@ -453,6 +457,17 @@ mod tests {
 
         assert(
             r#""@nodelib/fs.stat@2.0.3", "@nodelib/fs.stat@^2.0.2":
+            version "2.0.3"
+        "#,
+            vec![
+                ("@nodelib/fs.stat", "2.0.3"),
+                ("@nodelib/fs.stat", "^2.0.2"),
+            ],
+        );
+
+        // yarn >= 2.0 format
+        assert(
+            r#""@nodelib/fs.stat@npm:2.0.3, @nodelib/fs.stat@npm:^2.0.2":
             version "2.0.3"
         "#,
             vec![
