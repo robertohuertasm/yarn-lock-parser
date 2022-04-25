@@ -188,20 +188,25 @@ fn double_quoted_text_or_unquoted(input: &str) -> Res<&str, &str> {
     alt((double_quoted_text, space_delimited_word))(input)
 }
 
-fn entry_single_descriptor(input: &str) -> Res<&str, (&str, &str)> {
-    let (i, (_, desc)) = tuple((opt(tag("\"")), is_not(",\"")))(input)?;
-    let i = i.strip_suffix('"').or(Some(i)).unwrap();
-    let (name, mut version) = desc.rsplit_once('@').ok_or_else(|| {
-        nom::Err::Failure(nom::error::VerboseError::from_error_kind(
-            "version format error: @ not found",
-            nom::error::ErrorKind::Fail,
-        ))
-    })?;
+fn entry_single_descriptor<'a>(input: &'a str) -> Res<&str, (&str, &str)> {
+    let (i, (_, desc)) = tuple((opt(tag("\"")), is_not(",\"\n")))(input)?;
+    let i = i.strip_prefix('"').or(Some(i)).unwrap();
 
-    // from yarn.lock v2 forward, a repo hint like `npm:` could be prefixed to the version
-    if let Some(colon_index) = version.find(':') {
-        version = &version[colon_index + 1..];
-    }
+    let (_, (name, version)) = context("entry single descriptor", |i: &'a str| {
+        let (name, mut version) = i.rsplit_once('@').ok_or_else(|| {
+            nom::Err::Failure(nom::error::VerboseError::from_error_kind(
+                "version format error: @ not found",
+                nom::error::ErrorKind::Fail,
+            ))
+        })?;
+
+        // from yarn.lock v2 forward, a repo hint like `npm:` could be prefixed to the version
+        if let Some(colon_index) = version.find(':') {
+            version = &version[colon_index + 1..];
+        }
+
+        Ok((i, (name, version)))
+    })(desc)?;
 
     Ok((i, (name, version)))
 }
