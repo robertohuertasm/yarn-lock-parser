@@ -2,7 +2,10 @@
 name = "yarn-lock-parser"
 description = "yarn.lock parser"
 version = "0.2.0"
-authors = ["Roberto Huertas <roberto.huertas@outlook.com>"]
+authors = [
+  "Roberto Huertas <roberto.huertas@outlook.com>",
+  "Riccardo Attilio Galli <riccardo@sideralis.org>"
+]
 edition = "2018"
 license = "MIT"
 repository = "https://github.com/robertohuertasm/yarn-lock-parser"
