@@ -574,6 +574,13 @@ __metadata:
                 ("@nodelib/fs.stat", "^2.0.2"),
             ],
         );
+
+        assert(
+            r#"foolib@npm:1.2.3 || ^2.0.0":
+            version "1.2.3"
+        "#,
+            vec![("foolib", "1.2.3 || ^2.0.0")],
+        );
     }
 
     #[test]
