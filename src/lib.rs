@@ -9,7 +9,7 @@ use nom::{
     error::{context, ParseError, VerboseError},
     multi::{count, many0, many1, many_till, separated_list1},
     sequence::{delimited, tuple},
-    AsChar, IResult, InputIter,
+    AsChar, IResult,
 };
 
 use thiserror::Error;
