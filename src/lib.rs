@@ -2,13 +2,13 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_until},
     character::{
-        complete::{line_ending, newline, space0, space1},
+        complete::{line_ending, newline, not_line_ending, one_of, space0, space1},
         streaming::multispace0,
     },
-    combinator::{eof, recognize},
-    error::{context, VerboseError},
+    combinator::{eof, fail, opt, recognize},
+    error::{context, ParseError, VerboseError},
     multi::{count, many0, many1, many_till, separated_list1},
-    sequence::{delimited, terminated, tuple},
+    sequence::{delimited, tuple},
     AsChar, IResult,
 };
 
@@ -54,6 +54,7 @@ pub fn parse_str(content: &str) -> Result<Vec<Entry>, YarnLockError> {
 
 fn parse(input: &str) -> Res<&str, Vec<Entry>> {
     let (i, _) = yarn_lock_header(input)?;
+    let (i, _) = opt(yarn_lock_metadata)(i)?;
     let (i, mut entries) = many0(entry)(i)?;
     let (i, final_entry) = entry_final(i)?;
     entries.push(final_entry);
@@ -69,6 +70,18 @@ fn take_till_line_end(input: &str) -> Res<&str, &str> {
 
 fn yarn_lock_header(input: &str) -> Res<&str, &str> {
     recognize(tuple((count(take_till_line_end, 2), multispace0)))(input)
+}
+
+fn yarn_lock_metadata(input: &str) -> Res<&str, &str> {
+    context(
+        "metadata",
+        recognize(tuple((
+            tag("__metadata:"),
+            take_till_line_end,
+            many_till(take_till_line_end, recognize(tuple((space0, newline)))),
+            multispace0,
+        ))),
+    )(input)
 }
 
 fn entry_final(input: &str) -> Res<&str, Entry> {
@@ -140,19 +153,32 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
     )
 }
 
+fn dependency_version(input: &str) -> Res<&str, &str> {
+    alt((double_quoted_text, not_line_ending))(input).map(|(i, version)| {
+        (
+            i,
+            // e.g. 1.2.3
+            // e.g. "1.2.3"
+            // e.g. "npm:foo@1.0.0 || 1.0.1" # it happens with aliased deps
+            version.rsplit_once('@').or(Some(("", version))).unwrap().1,
+        )
+    })
+}
+
 fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
     let (input, (indent, _, _)) = tuple((space1, tag("dependencies:"), line_ending))(input)?;
 
     let dependencies_parser = many1(move |i| {
         tuple((
-            tag(indent),                    // indented as much as the parent...
-            space1,                         // ... plus extra indentation
-            double_quoted_text_or_unquoted, // package name
-            space1,
-            double_quoted_text, // version
+            tag(indent),  // indented as much as the parent...
+            space1,       // ... plus extra indentation
+            is_not(": "), // package name
+            one_of(": "),
+            space0,
+            dependency_version, // version
             line_ending,
         ))(i)
-        .map(|(i, (_, _, p, _, v, _))| (i, (p, v)))
+        .map(|(i, (_, _, p, _, _, v, _))| (i, (p.trim_matches('"'), v)))
     });
     context("dependencies", dependencies_parser)(input)
         .map(|(i, res)| (i, EntryItem::Dependencies(res)))
@@ -166,45 +192,92 @@ fn double_quoted_text(input: &str) -> Res<&str, &str> {
     delimited(tag("\""), take_until("\""), tag("\""))(input)
 }
 
-fn space_delimited_word(input: &str) -> Res<&str, &str> {
-    is_not(" \t\r\n")(input)
+fn entry_single_descriptor<'a>(input: &'a str) -> Res<&str, (&str, &str)> {
+    let (i, (_, desc)) = tuple((opt(tag("\"")), is_not(",\"\n")))(input)?;
+    let i = i.strip_prefix('"').or(Some(i)).unwrap();
+
+    let (_, (name, version)) = context("entry single descriptor", |i: &'a str| {
+        let version_start_idx = i.rfind('@').map(|idx| {
+            let idx = idx + 1;
+            // does it also contains a colon? e.g. foo@workspace:.
+            i[idx..]
+                .rfind(':')
+                .map(|new_idx| idx + new_idx + 1)
+                .or(Some(idx))
+                .unwrap()
+        });
+
+        #[allow(clippy::manual_strip)]
+        let name_end_idx = if i.starts_with('@') {
+            i[1..].find('@').map(|idx| idx + 1)
+        } else {
+            i.find('@')
+        };
+
+        if name_end_idx.is_none() || version_start_idx.is_none() {
+            return Err(nom::Err::Failure(
+                nom::error::VerboseError::from_error_kind(
+                    "version format error: @ not found",
+                    nom::error::ErrorKind::Fail,
+                ),
+            ));
+        };
+
+        let (name, version) = (
+            &i[..name_end_idx.unwrap()],
+            &i[version_start_idx.unwrap()..],
+        );
+
+        Ok((i, (name, version)))
+    })(desc)?;
+
+    Ok((i, (name, version)))
 }
 
-fn double_quoted_text_or_unquoted(input: &str) -> Res<&str, &str> {
-    alt((double_quoted_text, space_delimited_word))(input)
-}
+fn entry_descriptors<'a>(input: &'a str) -> Res<&str, Vec<(&str, &str)>> {
+    // foo@1:
+    // "foo@npm:1.2":
+    // "foo@1.2", "foo@npm:3.4":
+    // "foo@npm:1.2, foo@npm:3.4":
+    // "foo@npm:0.3.x, foo@npm:>= 0.3.2 < 0.4.0":
 
-fn entry_single_descriptor(input: &str) -> Res<&str, &str> {
-    context("single_descriptor", alt((double_quoted_text, is_not(",:"))))(input)
-}
-
-fn entry_descriptors(input: &str) -> Res<&str, Vec<(&str, &str)>> {
     context(
         "descriptors",
-        terminated(
-            separated_list1(tag(", "), entry_single_descriptor),
-            tuple((tag(":"), line_ending)),
-        ),
+        |input: &'a str| -> Res<&str, Vec<(&str, &str)>> {
+            let (input, line) = take_till_line_end(input)?;
+
+            let line = line
+                .strip_suffix(":\r\n")
+                .or_else(|| line.strip_suffix(":\n"));
+
+            if line.is_none() {
+                fail::<_, &str, _>("descriptor does not end with : followed by newline")?;
+            }
+            let line = line.unwrap();
+
+            let (_, res) =
+                separated_list1(tuple((opt(tag("\"")), tag(", "))), entry_single_descriptor)(line)?;
+
+            Ok((input, res))
+        },
     )(input)
-    .map(|(i, res)| {
-        let x = res
-            .into_iter()
-            .map(|desc: &str| desc.rsplit_once('@').unwrap())
-            .collect();
-        (i, x)
-    })
 }
 
 fn entry_version(input: &str) -> Res<&str, EntryItem> {
-    let (i, _) = take_until(r#"version ""#)(input)?;
     context(
         "version",
-        terminated(
-            delimited(tag(r#"version ""#), is_version, tag(r#"""#)),
+        tuple((
+            space1,
+            tag("version"),
+            opt(tag(":")),
+            space1,
+            opt(tag("\"")),
+            is_version,
+            opt(tag("\"")),
             line_ending,
-        ),
-    )(i)
-    .map(|(i, version)| (i, EntryItem::Version(version)))
+        )),
+    )(input)
+    .map(|(i, (_, _, _, _, _, version, _, _))| (i, EntryItem::Version(version)))
 }
 
 fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
@@ -311,6 +384,120 @@ mod tests {
     }
 
     #[test]
+    fn parse_v6_doc_from_memory_works() {
+        fn assert(input: &str, expect: &[Entry]) {
+            let res = parse(input).unwrap();
+            assert_eq!(res.1, expect);
+        }
+
+        assert(
+            r#"# This file is generated by running "yarn install" inside your project.
+# Manual changes might be lost - proceed with caution!
+
+__metadata:
+  version: 6
+  cacheKey: 8
+
+"@babel/helper-plugin-utils@npm:^7.16.7":
+  version: 7.16.7
+  resolution: "@babel/helper-plugin-utils@npm:7.16.7"
+  checksum: d08dd86554a186c2538547cd537552e4029f704994a9201d41d82015c10ed7f58f9036e8d1527c3760f042409163269d308b0b3706589039c5f1884619c6d4ce
+  languageName: node
+  linkType: hard
+
+"@babel/plugin-transform-for-of@npm:^7.12.1":
+  version: 7.16.7
+  resolution: "@babel/plugin-transform-for-of@npm:7.16.7"
+  dependencies:
+    "@babel/helper-plugin-utils": ^7.16.7
+  peerDependencies:
+    "@babel/core": ^7.0.0-0
+  checksum: 35c9264ee4bef814818123d70afe8b2f0a85753a0a9dc7b73f93a71cadc5d7de852f1a3e300a7c69a491705805704611de1e2ccceb5686f7828d6bca2e5a7306
+  languageName: node
+  linkType: hard
+
+"@babel/runtime@npm:^7.12.5":
+  version: 7.17.9
+  resolution: "@babel/runtime@npm:7.17.9"
+  dependencies:
+    regenerator-runtime: ^0.13.4
+  checksum: 4d56bdb82890f386d5a57c40ef985a0ed7f0a78f789377a2d0c3e8826819e0f7f16ba0fe906d9b2241c5f7ca56630ef0653f5bb99f03771f7b87ff8af4bf5fe3
+  languageName: node
+  linkType: hard
+"#,
+            &[
+                Entry {
+                    name: "@babel/helper-plugin-utils",
+                    version: "7.16.7",
+                    descriptors: vec![("@babel/helper-plugin-utils", "^7.16.7")],
+                    ..Default::default()
+                },
+                Entry {
+                    name: "@babel/plugin-transform-for-of",
+                    version: "7.16.7",
+                    descriptors: vec![("@babel/plugin-transform-for-of", "^7.12.1")],
+                    dependencies: vec![("@babel/helper-plugin-utils", "^7.16.7")],
+                    ..Default::default()
+                },
+                Entry {
+                    name: "@babel/runtime",
+                    version: "7.17.9",
+                    descriptors: vec![("@babel/runtime", "^7.12.5")],
+                    dependencies: vec![("regenerator-runtime", "^0.13.4")],
+                    ..Default::default()
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn parse_v6_doc_from_memory_with_npm_in_dependencies_works() {
+        fn assert(input: &str, expect: &[Entry]) {
+            let res = parse(input).unwrap();
+            assert_eq!(res.1, expect);
+        }
+
+        assert(
+            r#"# This file is generated by running "yarn install" inside your project.
+# Manual changes might be lost - proceed with caution!
+
+__metadata:
+  version: 6
+  cacheKey: 8
+
+"foo@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "foo@workspace:."
+  dependencies:
+    valib-aliased: "npm:valib@1.0.0 || 1.0.1"
+  languageName: unknown
+  linkType: soft
+
+"valib-aliased@npm:valib@1.0.0 || 1.0.1":
+  version: 1.0.0
+  resolution: "valib@npm:1.0.0"
+  checksum: ad4f5a0b5dde5ab5e3cc87050fad4d7096c32797454d8e37c7dadf3455a43a7221a3caaa0ad9e72b8cd96668168e5a25d5f0072e21990f7f80a64b1a4e34e921
+  languageName: node
+  linkType: hard
+"#,
+            &[
+                Entry {
+                    name: "foo",
+                    version: "0.0.0-use.local",
+                    descriptors: vec![("foo", ".")],
+                    dependencies: vec![("valib-aliased", "1.0.0 || 1.0.1")],
+                },
+                Entry {
+                    name: "valib-aliased",
+                    version: "1.0.0",
+                    descriptors: vec![("valib-aliased", "1.0.0 || 1.0.1")],
+                    dependencies: vec![],
+                },
+            ],
+        );
+    }
+
+    #[test]
     fn entry_works() {
         fn assert(input: &str, expect: Entry) {
             let res = entry(input).unwrap();
@@ -394,20 +581,19 @@ mod tests {
 
     #[test]
     fn entry_version_works() {
-        fn assert(input: &str, expect: &str) {
-            let res = entry_version(input).unwrap();
-            assert!(matches!(res.1, EntryItem::Version(v) if v == expect));
-        }
-
-        assert(
-            r#"@^7.0.0":
-    version "7.12.13"
-    resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658"
-    integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==
-    dependencies:
-        "@babel/highlight" "^7.12.13""#,
-            "7.12.13",
+        assert_eq!(
+            entry_version("  version \"1.2.3\"\n"),
+            Ok(("", EntryItem::Version("1.2.3")))
         );
+        assert_eq!(
+            entry_version("  version \"1.2.3-beta1\"\n"),
+            Ok(("", EntryItem::Version("1.2.3-beta1")))
+        );
+        assert_eq!(
+            entry_version("  version: 1.2.3\n"),
+            Ok(("", EntryItem::Version("1.2.3")))
+        );
+        assert!(entry_version("    node-version: 1.0.0\n").is_err());
     }
 
     #[test]
@@ -447,12 +633,24 @@ mod tests {
                 ("@nodelib/fs.stat", "^2.0.2"),
             ],
         );
-    }
 
-    #[test]
-    fn space_delimited_word_works() {
-        let res = space_delimited_word("foo ");
-        assert_eq!(res, Ok((" ", "foo")));
+        // yarn >= 2.0 format
+        assert(
+            r#""@nodelib/fs.stat@npm:2.0.3, @nodelib/fs.stat@npm:^2.0.2":
+            version "2.0.3"
+        "#,
+            vec![
+                ("@nodelib/fs.stat", "2.0.3"),
+                ("@nodelib/fs.stat", "^2.0.2"),
+            ],
+        );
+
+        assert(
+            r#"foolib@npm:1.2.3 || ^2.0.0":
+            version "1.2.3"
+        "#,
+            vec![("foolib", "1.2.3 || ^2.0.0")],
+        );
     }
 
     #[test]
@@ -474,6 +672,22 @@ mod tests {
                 "bar" "0.3-alpha1"
         "#,
             EntryItem::Dependencies(vec![("foo", "1.0"), ("bar", "0.3-alpha1")]),
+        );
+
+        assert(
+            r#"            dependencies:
+                foo "1.0 || 2.0"
+                "bar" "0.3-alpha1"
+        "#,
+            EntryItem::Dependencies(vec![("foo", "1.0 || 2.0"), ("bar", "0.3-alpha1")]),
+        );
+
+        assert(
+            r#"            dependencies:
+                foo: 1.0 || 2.0
+                "bar": "0.3-alpha1"
+        "#,
+            EntryItem::Dependencies(vec![("foo", "1.0 || 2.0"), ("bar", "0.3-alpha1")]),
         );
     }
 }
