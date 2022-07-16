@@ -160,7 +160,7 @@ fn dependency_version(input: &str) -> Res<&str, &str> {
             // e.g. 1.2.3
             // e.g. "1.2.3"
             // e.g. "npm:foo@1.0.0 || 1.0.1" # it happens with aliased deps
-            version.rsplit_once('@').or(Some(("", version))).unwrap().1,
+            version.rsplit_once('@').unwrap_or(("", version)).1,
         )
     })
 }
@@ -194,17 +194,13 @@ fn double_quoted_text(input: &str) -> Res<&str, &str> {
 
 fn entry_single_descriptor<'a>(input: &'a str) -> Res<&str, (&str, &str)> {
     let (i, (_, desc)) = tuple((opt(tag("\"")), is_not(",\"\n")))(input)?;
-    let i = i.strip_prefix('"').or(Some(i)).unwrap();
+    let i = i.strip_prefix('"').unwrap_or(i);
 
     let (_, (name, version)) = context("entry single descriptor", |i: &'a str| {
         let version_start_idx = i.rfind('@').map(|idx| {
             let idx = idx + 1;
             // does it also contains a colon? e.g. foo@workspace:.
-            i[idx..]
-                .rfind(':')
-                .map(|new_idx| idx + new_idx + 1)
-                .or(Some(idx))
-                .unwrap()
+            i[idx..].rfind(':').map_or(idx, |new_idx| idx + new_idx + 1)
         });
 
         #[allow(clippy::manual_strip)]
