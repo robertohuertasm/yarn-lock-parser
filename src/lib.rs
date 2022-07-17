@@ -145,7 +145,7 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
                 }
             }
 
-            assert_ne!(version, "");
+            assert_ne!(version, "", "Version is empty");
 
             (
                 next_input,
@@ -271,7 +271,9 @@ fn entry_version(input: &str) -> Res<&str, EntryItem> {
         "version",
         tuple((
             space1,
+            opt(tag("\"")),
             tag("version"),
+            opt(tag("\"")),
             opt(tag(":")),
             space1,
             opt(tag("\"")),
@@ -280,7 +282,7 @@ fn entry_version(input: &str) -> Res<&str, EntryItem> {
             line_ending,
         )),
     )(input)
-    .map(|(i, (_, _, _, _, _, version, _, _))| (i, EntryItem::Version(version)))
+    .map(|(i, (_, _, _, _, _, _, _, version, _, _))| (i, EntryItem::Version(version)))
 }
 
 fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
@@ -352,6 +354,16 @@ mod tests {
         let content = std::fs::read_to_string("tests/v1_without_endline/yarn.lock").unwrap();
         let res = parse(&content).unwrap();
         assert_v1(res)
+    }
+
+    #[test]
+    fn parse_v1_doc_from_file_with_npm_bug_works() {
+        // SEE: https://github.com/robertohuertasm/yarn-lock-parser/issues/3
+        let content = std::fs::read_to_string("tests/v1_with_npm_bug/yarn.lock").unwrap();
+        let res = parse(&content).unwrap();
+        // using v6 as we generated the lock file with v6 information.
+        // the npm bug convert it back to v1.
+        assert_v6(res);
     }
 
     #[test]
