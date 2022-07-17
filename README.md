@@ -2,7 +2,7 @@
 
 [![ActionsStatus](https://github.com/robertohuertasm/yarn-lock-parser/workflows/Build/badge.svg)](https://github.com/robertohuertasm/yarn-lock-parser/actions) [![Crates.io](https://img.shields.io/crates/v/yarn-lock-parser.svg)](https://crates.io/crates/yarn-lock-parser)
 
-Easily parse `yarn-lock` files.
+Easily parse `yarn-lock` files (v1 and v2).
 
 ## Example
 
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 ## Documentation
 
-Visit https://docs.rs/yarn-lock-parser/
+Visit [https://docs.rs/yarn-lock-parser/](https://docs.rs/yarn-lock-parser/)
 
 ## Build
 
@@ -37,7 +37,3 @@ cargo build
 ```bash
 cargo test
 ```
-
-## LICENSE
-
-MIT
