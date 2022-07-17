@@ -68,6 +68,13 @@ fn take_till_line_end(input: &str) -> Res<&str, &str> {
     )))(input)
 }
 
+fn take_till_optional_line_end(input: &str) -> Res<&str, &str> {
+    recognize(tuple((
+        alt((take_until("\n"), take_until("\n\r"), space0)),
+        take(1usize),
+    )))(input)
+}
+
 fn yarn_lock_header(input: &str) -> Res<&str, &str> {
     recognize(tuple((count(take_till_line_end, 2), multispace0)))(input)
 }
@@ -85,7 +92,7 @@ fn yarn_lock_metadata(input: &str) -> Res<&str, &str> {
 }
 
 fn entry_final(input: &str) -> Res<&str, Entry> {
-    recognize(many_till(take_till_line_end, eof))(input).map(|(i, capture)| {
+    recognize(many_till(take_till_optional_line_end, eof))(input).map(|(i, capture)| {
         let (_, my_entry) = parse_entry(capture).expect("Error parsing Entry");
         (i, my_entry)
     })
@@ -175,8 +182,8 @@ fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
             is_not(": "), // package name
             one_of(": "),
             space0,
-            dependency_version, // version
-            line_ending,
+            dependency_version,         // version
+            alt((line_ending, space0)), // newline or space
         ))(i)
         .map(|(i, (_, _, p, _, _, v, _))| (i, (p.trim_matches('"'), v)))
     });
@@ -294,11 +301,7 @@ where
 mod tests {
     use super::*;
 
-    #[test]
-    fn parse_doc_from_file_works() {
-        let content = std::fs::read_to_string("yarn.lock").unwrap();
-        let res = parse(&content).unwrap();
-
+    fn assert_v1(res: (&str, Vec<Entry>)) {
         assert_eq!(res.0, "");
         assert_eq!(
             res.1.first().unwrap(),
@@ -338,7 +341,21 @@ mod tests {
     }
 
     #[test]
-    fn parse_doc_from_memory_works() {
+    fn parse_v1_doc_from_file_works() {
+        let content = std::fs::read_to_string("tests/v1/yarn.lock").unwrap();
+        let res = parse(&content).unwrap();
+        assert_v1(res);
+    }
+
+    #[test]
+    fn parse_v1_doc_from_file_without_endline_works() {
+        let content = std::fs::read_to_string("tests/v1_without_endline/yarn.lock").unwrap();
+        let res = parse(&content).unwrap();
+        assert_v1(res)
+    }
+
+    #[test]
+    fn parse_v1_doc_from_memory_works_v1() {
         fn assert(input: &str, expect: &[Entry]) {
             let res = parse(input).unwrap();
             assert_eq!(res.1, expect);
@@ -377,6 +394,53 @@ mod tests {
                 },
             ],
         );
+    }
+
+    fn assert_v6(res: (&str, Vec<Entry>)) {
+        assert_eq!(res.0, "");
+        assert_eq!(
+            res.1.first().unwrap(),
+            &Entry {
+                name: "@babel/code-frame",
+                version: "7.18.6",
+                descriptors: vec![("@babel/code-frame", "^7.18.6")],
+                dependencies: vec![("@babel/highlight", "^7.18.6")],
+                ..Default::default()
+            }
+        );
+
+        assert_eq!(
+            res.1.last().unwrap(),
+            &Entry {
+                name: "yargs",
+                version: "17.5.1",
+                descriptors: vec![("yargs", "^17.5.1")],
+                dependencies: vec![
+                    ("cliui", "^7.0.2"),
+                    ("escalade", "^3.1.1"),
+                    ("get-caller-file", "^2.0.5"),
+                    ("require-directory", "^2.1.1"),
+                    ("string-width", "^4.2.3"),
+                    ("y18n", "^5.0.5"),
+                    ("yargs-parser", "^21.0.0"),
+                ],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_v6_doc_from_file_works() {
+        let content = std::fs::read_to_string("tests/v2/yarn.lock").unwrap();
+        let res = parse(&content).unwrap();
+        assert_v6(res)
+    }
+
+    #[test]
+    fn parse_v6_doc_from_file_without_endline_works() {
+        let content = std::fs::read_to_string("tests/v2_without_endline/yarn.lock").unwrap();
+        let res = parse(&content).unwrap();
+        assert_v6(res)
     }
 
     #[test]
@@ -565,6 +629,30 @@ __metadata:
         "@babel/highlight" "^7.12.13"
 
 "#,
+            Entry {
+                name: "@babel/code-frame",
+                version: "7.12.13",
+                descriptors: vec![("@babel/code-frame", "^7.0.0")],
+                dependencies: vec![("@babel/highlight", "^7.12.13")],
+                ..Default::default()
+            },
+        );
+    }
+
+    #[test]
+    fn parse_entry_without_endline_works() {
+        fn assert(input: &str, expect: Entry) {
+            let res = parse_entry(input).unwrap();
+            assert_eq!(res.1, expect);
+        }
+
+        assert(
+            r#""@babel/code-frame@^7.0.0":
+    version "7.12.13"
+    resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658"
+    integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==
+    dependencies:
+        "@babel/highlight" "^7.12.13""#,
             Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",

@@ -1,7 +1,7 @@
 [tasks.watch-test]
 install_crate = "cargo-watch"
 command = "cargo"
-args = ["watch", "-x", "test"]
+args = ["watch", "-x", "test", ]
 
 [tasks.format]
 install_crate = "rustfmt"
