@@ -1,6 +1,6 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take, take_until},
+    bytes::complete::{is_not, tag, take, take_till, take_until},
     character::{
         complete::{line_ending, newline, not_line_ending, one_of, space0, space1},
         streaming::multispace0,
@@ -33,6 +33,7 @@ pub enum YarnLockError {
 pub struct Entry<'a> {
     pub name: &'a str,
     pub version: &'a str,
+    pub integrity: &'a str,
     pub dependencies: Vec<(&'a str, &'a str)>,
     pub descriptors: Vec<(&'a str, &'a str)>,
 }
@@ -113,6 +114,7 @@ fn entry(input: &str) -> Res<&str, Entry> {
 enum EntryItem<'a> {
     Version(&'a str),
     Dependencies(Vec<(&'a str, &'a str)>),
+    Integrity(&'a str),
     Unknown(&'a str),
 }
 
@@ -120,8 +122,25 @@ fn unknown_line(input: &str) -> Res<&str, EntryItem> {
     take_till_line_end(input).map(|(i, res)| (i, EntryItem::Unknown(res)))
 }
 
+fn integrity(input: &str) -> Res<&str, EntryItem> {
+    context(
+        "integrity",
+        tuple((
+            space1,
+            opt(tag("\"")),
+            alt((tag("checksum"), tag("integrity"))),
+            opt(tag("\"")),
+            opt(tag(":")),
+            space1,
+            opt(tag("\"")),
+            take_till(|c| c == '"' || c == '\n' || c == '\r'),
+        )),
+    )(input)
+    .map(|(i, (_, _, _, _, _, _, _, integrity))| (i, EntryItem::Integrity(integrity)))
+}
+
 fn entry_item(input: &str) -> Res<&str, EntryItem> {
-    alt((entry_version, parse_dependencies, unknown_line))(input)
+    alt((entry_version, parse_dependencies, integrity, unknown_line))(input)
 }
 
 fn parse_entry(input: &str) -> Res<&str, Entry> {
@@ -136,11 +155,13 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
 
             let mut version = "";
             let mut dependencies = Vec::new();
+            let mut integrity = "";
 
             for ei in entry_items {
                 match ei {
                     EntryItem::Version(v) => version = v,
                     EntryItem::Dependencies(d) => dependencies = d,
+                    EntryItem::Integrity(c) => integrity = c,
                     EntryItem::Unknown(_) => (),
                 }
             }
@@ -152,6 +173,7 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
                 Entry {
                     name,
                     version,
+                    integrity,
                     dependencies,
                     descriptors,
                 },
@@ -312,7 +334,7 @@ mod tests {
                 version: "7.12.13",
                 descriptors: vec![("@babel/code-frame", "^7.0.0")],
                 dependencies: vec![("@babel/highlight", "^7.12.13")],
-                ..Default::default()
+                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g=="
             }
         );
 
@@ -337,7 +359,7 @@ mod tests {
                     ("y18n", "^3.2.1"),
                     ("yargs-parser", "^7.0.0"),
                 ],
-                ..Default::default()
+                integrity: "sha1-UqzCP+7Kw0BCB47njAwAf1CF20w="
             }
         );
     }
@@ -363,7 +385,7 @@ mod tests {
         let res = parse(&content).unwrap();
         // using v6 as we generated the lock file with v6 information.
         // the npm bug convert it back to v1.
-        assert_v6(res);
+        assert_v6(res, true);
     }
 
     #[test]
@@ -396,19 +418,20 @@ mod tests {
                     version: "7.12.13",
                     descriptors: vec![("@babel/code-frame", "^7.0.0")],
                     dependencies: vec![("@babel/highlight", "^7.12.13")],
-                    ..Default::default()
+                    integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g=="
                 },
                 Entry {
                     name: "@babel/helper-validator-identifier",
                     version: "7.12.11",
                     descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
+                    integrity: "sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==",
                     ..Default::default()
                 },
             ],
         );
     }
 
-    fn assert_v6(res: (&str, Vec<Entry>)) {
+    fn assert_v6(res: (&str, Vec<Entry>), with_bug: bool) {
         assert_eq!(res.0, "");
         assert_eq!(
             res.1.first().unwrap(),
@@ -417,7 +440,11 @@ mod tests {
                 version: "7.18.6",
                 descriptors: vec![("@babel/code-frame", "^7.18.6")],
                 dependencies: vec![("@babel/highlight", "^7.18.6")],
-                ..Default::default()
+                integrity: if with_bug {
+                    "sha512-TDCmlK5eOvH+eH7cdAFlNXeVJqWIQ7gW9tY1GJIpUtFb6CmjVyq2VM3u71bOyR8CRihcCgMUYoDNyLXao3+70Q=="
+                } else {
+                    "195e2be3172d7684bf95cff69ae3b7a15a9841ea9d27d3c843662d50cdd7d6470fd9c8e64be84d031117e4a4083486effba39f9aef6bbb2c89f7f21bcfba33ba"
+                }
             }
         );
 
@@ -436,7 +463,11 @@ mod tests {
                     ("y18n", "^5.0.5"),
                     ("yargs-parser", "^21.0.0"),
                 ],
-                ..Default::default()
+                integrity: if with_bug {
+                    "sha512-t6YAJcxDkNX7NFYiVtKvWUz8l+PaKTLiL63mJYWR2GnHq2gjEWISzsLp9wg3aY36dY1j+gfIEL3pIF+XlJJfbA=="
+                } else {
+                    "00d58a2c052937fa044834313f07910fd0a115dec5ee35919e857eeee3736b21a4eafa8264535800ba8bac312991ce785ecb8a51f4d2cc8c4676d865af1cfbde"
+                }
             }
         );
     }
@@ -445,14 +476,14 @@ mod tests {
     fn parse_v6_doc_from_file_works() {
         let content = std::fs::read_to_string("tests/v2/yarn.lock").unwrap();
         let res = parse(&content).unwrap();
-        assert_v6(res)
+        assert_v6(res, false)
     }
 
     #[test]
     fn parse_v6_doc_from_file_without_endline_works() {
         let content = std::fs::read_to_string("tests/v2_without_endline/yarn.lock").unwrap();
         let res = parse(&content).unwrap();
-        assert_v6(res)
+        assert_v6(res, false)
     }
 
     #[test]
@@ -502,6 +533,7 @@ __metadata:
                     name: "@babel/helper-plugin-utils",
                     version: "7.16.7",
                     descriptors: vec![("@babel/helper-plugin-utils", "^7.16.7")],
+                    integrity: "d08dd86554a186c2538547cd537552e4029f704994a9201d41d82015c10ed7f58f9036e8d1527c3760f042409163269d308b0b3706589039c5f1884619c6d4ce",
                     ..Default::default()
                 },
                 Entry {
@@ -509,14 +541,14 @@ __metadata:
                     version: "7.16.7",
                     descriptors: vec![("@babel/plugin-transform-for-of", "^7.12.1")],
                     dependencies: vec![("@babel/helper-plugin-utils", "^7.16.7")],
-                    ..Default::default()
+                    integrity: "35c9264ee4bef814818123d70afe8b2f0a85753a0a9dc7b73f93a71cadc5d7de852f1a3e300a7c69a491705805704611de1e2ccceb5686f7828d6bca2e5a7306",
                 },
                 Entry {
                     name: "@babel/runtime",
                     version: "7.17.9",
                     descriptors: vec![("@babel/runtime", "^7.12.5")],
                     dependencies: vec![("regenerator-runtime", "^0.13.4")],
-                    ..Default::default()
+                    integrity: "4d56bdb82890f386d5a57c40ef985a0ed7f0a78f789377a2d0c3e8826819e0f7f16ba0fe906d9b2241c5f7ca56630ef0653f5bb99f03771f7b87ff8af4bf5fe3"
                 },
             ],
         );
@@ -556,12 +588,14 @@ __metadata:
                 Entry {
                     name: "foo",
                     version: "0.0.0-use.local",
+                    integrity: "",
                     descriptors: vec![("foo", ".")],
                     dependencies: vec![("valib-aliased", "1.0.0 || 1.0.1")],
                 },
                 Entry {
                     name: "valib-aliased",
                     version: "1.0.0",
+                    integrity: "ad4f5a0b5dde5ab5e3cc87050fad4d7096c32797454d8e37c7dadf3455a43a7221a3caaa0ad9e72b8cd96668168e5a25d5f0072e21990f7f80a64b1a4e34e921",
                     descriptors: vec![("valib-aliased", "1.0.0 || 1.0.1")],
                     dependencies: vec![],
                 },
@@ -590,7 +624,7 @@ __metadata:
                 version: "7.12.13",
                 descriptors: vec![("@babel/code-frame", "^7.0.0")],
                 dependencies: vec![("@babel/highlight", "^7.12.13")],
-                ..Default::default()
+                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g=="
             },
         );
         // with final spaces
@@ -605,6 +639,7 @@ __metadata:
                 name: "@babel/helper-validator-identifier",
                 version: "7.12.11",
                 descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
+                integrity: "sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==",
                 ..Default::default()
             },
         );
@@ -620,6 +655,7 @@ __metadata:
                 name: "@babel/helper-validator-identifier",
                 version: "7.12.11",
                 descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
+                integrity: "sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==",
                 ..Default::default()
             },
         );
@@ -646,6 +682,7 @@ __metadata:
                 version: "7.12.13",
                 descriptors: vec![("@babel/code-frame", "^7.0.0")],
                 dependencies: vec![("@babel/highlight", "^7.12.13")],
+                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
                 ..Default::default()
             },
         );
@@ -670,6 +707,7 @@ __metadata:
                 version: "7.12.13",
                 descriptors: vec![("@babel/code-frame", "^7.0.0")],
                 dependencies: vec![("@babel/highlight", "^7.12.13")],
+                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
                 ..Default::default()
             },
         );
@@ -753,6 +791,32 @@ __metadata:
     fn unknown_line_works() {
         let res = unknown_line("foo\nbar").unwrap();
         assert_eq!(res, ("bar", EntryItem::Unknown("foo\n")));
+    }
+
+    #[test]
+    fn integrity_works() {
+        fn assert(input: &str, expect: EntryItem) {
+            let res = integrity(input).unwrap();
+            assert_eq!(res.1, expect);
+        }
+
+        assert(
+            r#" "integrity" "sha1-jQrELxbqVd69MyyvTEA4s+P139k="
+        "#,
+            EntryItem::Integrity("sha1-jQrELxbqVd69MyyvTEA4s+P139k="),
+        );
+
+        assert(
+            r#" integrity sha1-jQrELxbqVd69MyyvTEA4s+P139k=
+        "#,
+            EntryItem::Integrity("sha1-jQrELxbqVd69MyyvTEA4s+P139k="),
+        );
+
+        assert(
+            r#" checksum: fb47e70bf0001fdeabdc0429d431863e9475e7e43ea5f94ad86503d918423c1543361cc5166d713eaa7029dd7a3d34775af04764bebff99ef413111a5af18c80
+        "#,
+            EntryItem::Integrity("fb47e70bf0001fdeabdc0429d431863e9475e7e43ea5f94ad86503d918423c1543361cc5166d713eaa7029dd7a3d34775af04764bebff99ef413111a5af18c80"),
+        );
     }
 
     #[test]
