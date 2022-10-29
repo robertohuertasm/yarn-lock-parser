@@ -149,7 +149,7 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
             let (descriptors, entry_items) = res;
 
             // descriptors is guaranteed to be of length >= 1
-            let first_descriptor = descriptors.get(0).expect("Somehow descriptors is empty");
+            let first_descriptor = descriptors.first().expect("Somehow descriptors is empty");
 
             let name = first_descriptor.0;
 
