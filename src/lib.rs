@@ -39,6 +39,8 @@ pub struct Entry<'a> {
 }
 
 /// Accepts the `yarn.lock` content and returns all the entries.
+/// # Errors
+/// - `YarnLockError`
 pub fn parse_str(content: &str) -> Result<Vec<Entry>, YarnLockError> {
     parse(content).map(|(_, entries)| entries).map_err(|e| {
         e.map(|ve| {
