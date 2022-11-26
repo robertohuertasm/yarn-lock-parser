@@ -15,7 +15,7 @@ jobs:
       fail-fast: true
       matrix:
         rust: [stable]
-        os: [windows-latest, ubuntu-latest] # we could add macOS-latest & windows-latest but don't need it for the moment
+        os: [windows-latest, windows-2019] # we could add macOS-latest & windows-latest but don't need it for the moment
     steps:
       - name: Setup Rust
         uses: hecrj/setup-rust-action@master
