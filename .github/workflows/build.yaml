@@ -18,28 +18,17 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
       - name: Setup Rust (with fmt and clippy)
-        if: matrix.os == 'ubuntu-latest'
         uses: hecrj/setup-rust-action@master
         with:
           rust-version: ${{ matrix.rust }}
           components: rustfmt, clippy
-      - name: Setup Rust
-        if: matrix.os != 'ubuntu-latest'
-        uses: hecrj/setup-rust-action@master
-        with:
-          rust-version: ${{ matrix.rust }}
-      - name: Install cargo-make
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: --debug cargo-make
       - name: Checkout
         uses: actions/checkout@v2
       - name: Run cargo fmt
         if: matrix.os == 'ubuntu-latest'
-        run: cargo make format
+        run: cargo fmt --all -- --check
       - name: Run cargo clippy
         if: matrix.os == 'ubuntu-latest'
-        run: cargo make clippy
+        run: cargo clippy
       - name: Run tests
-        run: cargo make test
+        run: cargo test
