@@ -367,6 +367,16 @@ mod tests {
     }
 
     #[test]
+    fn parse_moon_doc_from_file_works() {
+        let content = std::fs::read_to_string("tests/moon_bug/yarn.lock").unwrap();
+        let res = parse(&content).unwrap();
+        assert_eq!(res.0, "");
+
+        let entries = parse_str(&content).unwrap();
+        assert!(entries.len() > 0);
+    }
+
+    #[test]
     fn parse_v1_doc_from_file_works() {
         let content = std::fs::read_to_string("tests/v1/yarn.lock").unwrap();
         let res = parse(&content).unwrap();
