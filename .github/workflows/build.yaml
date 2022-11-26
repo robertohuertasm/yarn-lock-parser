@@ -30,7 +30,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Tests
-        run: cargo test
+        run: cargo test -- --nocapture
       # - name: Run cargo fmt
       #   run: cargo make format
       # - name: Run cargo clippy
