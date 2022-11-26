@@ -21,16 +21,16 @@ jobs:
         uses: hecrj/setup-rust-action@master
         with:
           rust-version: ${{ matrix.rust }}
-          components: rustfmt, clippy
-      - name: Tests
-        run: cargo test
+          # components: rustfmt, clippy
       # - name: Install cargo-make
       #   uses: actions-rs/cargo@v1
       #   with:
       #     command: install
       #     args: --debug cargo-make
-      # - name: Checkout
-      #   uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Tests
+        run: cargo test
       # - name: Run cargo fmt
       #   run: cargo make format
       # - name: Run cargo clippy
