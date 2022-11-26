@@ -367,6 +367,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "not detailed enough"]]	
     fn parse_moon_doc_from_file_works() {
         let content = std::fs::read_to_string("tests/moon_bug/yarn.lock").unwrap();
         let res = parse(&content).unwrap();

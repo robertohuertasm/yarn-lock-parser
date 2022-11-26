@@ -22,16 +22,18 @@ jobs:
         with:
           rust-version: ${{ matrix.rust }}
           components: rustfmt, clippy
-      - name: Install cargo-make
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: --debug cargo-make
-      - name: Checkout
-        uses: actions/checkout@v2
-      - name: Run cargo fmt
-        run: cargo make format
-      - name: Run cargo clippy
-        run: cargo make clippy
-      - name: Run tests
-        run: cargo make test
+      - name: Tests
+        run: cargo test
+      # - name: Install cargo-make
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: install
+      #     args: --debug cargo-make
+      # - name: Checkout
+      #   uses: actions/checkout@v2
+      # - name: Run cargo fmt
+      #   run: cargo make format
+      # - name: Run cargo clippy
+      #   run: cargo make clippy
+      # - name: Run tests
+      #   run: cargo make test
