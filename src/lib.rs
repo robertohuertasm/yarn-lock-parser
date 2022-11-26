@@ -370,6 +370,7 @@ mod tests {
     fn parse_windows_server_works() {
         let content = std::fs::read_to_string("tests/ws/yarn.lock").unwrap();
         let res = parse(&content).unwrap();
+        println!("{:?}", content);
         println!("{:?}", res);
         assert_v1(res);
     }
