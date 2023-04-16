@@ -324,6 +324,7 @@ fn entry_version(input: &str) -> Res<&str, EntryItem> {
     .map(|(i, (_, _, _, _, _, _, _, version, _, _))| (i, EntryItem::Version(version)))
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
 where
     T: nom::InputTakeAtPosition,
