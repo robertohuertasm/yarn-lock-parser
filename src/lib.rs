@@ -402,6 +402,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_bun_workspaces_v1() {
+        let content = std::fs::read_to_string("tests/bun_workspaces/yarn.lock").unwrap();
+        let res = parse(&content);
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap().1.len(), 19);
+    }
+
+    #[test]
     fn parse_v1_extra_end_line_from_file_works() {
         let content = std::fs::read_to_string("tests/v1_extra_end_line/yarn.lock").unwrap();
         let res = parse(&content).unwrap();
