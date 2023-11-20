@@ -86,6 +86,8 @@ fn take_till_optional_line_end(input: &str) -> Res<&str, &str> {
 }
 
 fn yarn_lock_header(input: &str) -> Res<&str, &str> {
+    // 2 lines for Yarn
+    // 3 lines for Bun
     recognize(tuple((count(take_till_line_end, 3), multispace0)))(input)
 }
 
