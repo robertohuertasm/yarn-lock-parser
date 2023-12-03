@@ -9,7 +9,7 @@ use nom::{
     error::{context, ParseError, VerboseError},
     multi::{count, many0, many1, many_till, separated_list1},
     sequence::{delimited, tuple},
-    IResult,
+    AsChar, IResult,
 };
 
 use thiserror::Error;
@@ -88,7 +88,17 @@ fn take_till_optional_line_end(input: &str) -> Res<&str, &str> {
 fn yarn_lock_header(input: &str) -> Res<&str, &str> {
     // 2 lines for Yarn
     // 3 lines for Bun
-    recognize(tuple((count(take_till_line_end, 3), multispace0)))(input)
+    let lines = if input
+        .lines()
+        .skip(2)
+        .take(1)
+        .any(|l| l.starts_with("# bun"))
+    {
+        3
+    } else {
+        2
+    };
+    recognize(tuple((count(take_till_line_end, lines), multispace0)))(input)
 }
 
 fn yarn_lock_metadata(input: &str) -> Res<&str, &str> {
@@ -320,8 +330,7 @@ fn entry_version(input: &str) -> Res<&str, EntryItem> {
             opt(tag(":")),
             space1,
             opt(tag("\"")),
-            take_till(|c| c == '"' || c == '\n' || c == '\r'),
-            // is_version,
+            is_version,
             opt(tag("\"")),
             line_ending,
         )),
@@ -329,20 +338,22 @@ fn entry_version(input: &str) -> Res<&str, EntryItem> {
     .map(|(i, (_, _, _, _, _, _, _, version, _, _))| (i, EntryItem::Version(version)))
 }
 
-// #[allow(clippy::needless_pass_by_value)]
-// fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
-// where
-//     T: nom::InputTakeAtPosition,
-//     <T as nom::InputTakeAtPosition>::Item: AsChar,
-// {
-//     input.split_at_position1_complete(
-//         |item| {
-//             let c: char = item.as_char();
-//             !(c == '.' || c == '-' || c.is_alphanum())
-//         },
-//         nom::error::ErrorKind::AlphaNumeric,
-//     )
-// }
+#[allow(clippy::needless_pass_by_value)]
+fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
+where
+    T: nom::InputTakeAtPosition,
+    <T as nom::InputTakeAtPosition>::Item: AsChar,
+{
+    let allowed_chars = ['.', '-', '@', ':', '/'];
+    input.split_at_position1_complete(
+        |item| {
+            let c: char = item.as_char();
+            // allowed chars for version
+            !(allowed_chars.contains(&c) || c.is_alphanum())
+        },
+        nom::error::ErrorKind::AlphaNumeric,
+    )
+}
 
 #[cfg(test)]
 mod tests {
@@ -846,6 +857,8 @@ __metadata:
             Ok(("", EntryItem::Version("1.2.3")))
         );
         assert!(entry_version("    node-version: 1.0.0\n").is_err());
+
+        // bun workspaces
         assert_eq!(
             entry_version("  version: \"workspace:foo\"\n"),
             Ok(("", EntryItem::Version("workspace:foo")))
