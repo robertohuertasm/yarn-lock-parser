@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*.*.*"
+      - 'v*.*.*'
 
 jobs:
   crates:
@@ -12,7 +12,7 @@ jobs:
       - name: Setup Rust
         uses: hecrj/setup-rust-action@master
         with:
-          rust-version: ${{ matrix.rust }}
+          rust-version: stable
       - name: Checkout
         uses: actions/checkout@v2
       - name: Publish to crates.io
