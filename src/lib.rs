@@ -304,6 +304,7 @@ fn entry_descriptors<'a>(input: &'a str) -> Res<&str, Vec<(&str, &str)>> {
                 .or_else(|| line.strip_suffix(":\n"));
 
             if line.is_none() {
+                dbg!(&input, &line);
                 fail::<_, &str, _>("descriptor does not end with : followed by newline")?;
             }
             let line = line.unwrap();
@@ -344,7 +345,7 @@ where
     T: nom::InputTakeAtPosition,
     <T as nom::InputTakeAtPosition>::Item: AsChar,
 {
-    let allowed_chars = ['.', '-', '@', ':', '/'];
+    let allowed_chars = ['.', '-', '@', ':', '/', '#'];
     input.split_at_position1_complete(
         |item| {
             let c: char = item.as_char();
@@ -867,6 +868,29 @@ __metadata:
             entry_version("  version: \"workspace:@bar/baz\"\r\n"),
             Ok(("", EntryItem::Version("workspace:@bar/baz")))
         );
+
+        // github:
+        assert_eq!(
+            entry_version(" version \"github:settlemint/node-http-proxy\"\r\n"),
+            Ok(("", EntryItem::Version("github:settlemint/node-http-proxy")))
+        );
+        assert_eq!(
+            entry_version(" version \"github:settlemint/node-http-proxy#master\"\n"),
+            Ok((
+                "",
+                EntryItem::Version("github:settlemint/node-http-proxy#master")
+            ))
+        );
+
+        // npm:
+        assert_eq!(
+            entry_version(" version \"npm:foo-bar\"\r\n"),
+            Ok(("", EntryItem::Version("npm:foo-bar")))
+        );
+        assert_eq!(
+            entry_version(" version \"npm:@scope/foo-bar\"\r\n"),
+            Ok(("", EntryItem::Version("npm:@scope/foo-bar")))
+        );
     }
 
     #[test]
@@ -995,5 +1019,24 @@ __metadata:
         let k = take_till_line_end("foo\r\nbar").unwrap();
         assert_eq!(k.0, "bar");
         assert_eq!(k.1, "foo\r\n");
+    }
+
+    #[test]
+    fn supports_github_version_protocol() {
+        // yarn > 1
+        let content = std::fs::read_to_string("tests/github_version/yarn.lock").unwrap();
+        let res = parse(&content);
+        assert!(!res.is_err());
+
+        // yarn 1
+        let content = std::fs::read_to_string("tests/github_version/yarn1.lock").unwrap();
+        let res = parse(&content);
+        assert!(!res.is_err());
+
+        // bun
+        let content = std::fs::read_to_string("tests/github_version/bun.lock").unwrap();
+        let res = parse(&content);
+        dbg!(&res);
+        assert!(!res.is_err());
     }
 }
