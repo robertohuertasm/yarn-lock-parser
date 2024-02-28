@@ -304,7 +304,6 @@ fn entry_descriptors<'a>(input: &'a str) -> Res<&str, Vec<(&str, &str)>> {
                 .or_else(|| line.strip_suffix(":\n"));
 
             if line.is_none() {
-                dbg!(&input, &line);
                 fail::<_, &str, _>("descriptor does not end with : followed by newline")?;
             }
             let line = line.unwrap();
@@ -1036,7 +1035,6 @@ __metadata:
         // bun
         let content = std::fs::read_to_string("tests/github_version/bun.lock").unwrap();
         let res = parse(&content);
-        dbg!(&res);
         assert!(!res.is_err());
     }
 }
