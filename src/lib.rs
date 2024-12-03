@@ -28,6 +28,7 @@ pub enum YarnLockError {
 }
 
 /// A parsed yarn.lock file.
+#[derive(Debug)]
 pub struct Lockfile<'a> {
     pub entries: Vec<Entry<'a>>,
     pub generator: Generator,
