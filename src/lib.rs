@@ -254,11 +254,7 @@ fn entry_single_descriptor<'a>(input: &'a str) -> Res<&str, (&str, &str)> {
     let i = i.strip_prefix('"').unwrap_or(i);
 
     let (_, (name, version)) = context("entry single descriptor", |i: &'a str| {
-        let version_start_idx = i.rfind('@').map(|idx| {
-            let idx = idx + 1;
-            // does it also contains a colon? e.g. foo@workspace:.
-            i[idx..].rfind(':').map_or(idx, |new_idx| idx + new_idx + 1)
-        });
+        let version_start_idx = i.rfind('@').map(|idx| idx + 1);
 
         #[allow(clippy::manual_strip)]
         let name_end_idx = if i.starts_with('@') {
@@ -511,7 +507,10 @@ mod tests {
             &Entry {
                 name: "@babel/code-frame",
                 version: "7.18.6",
-                descriptors: vec![("@babel/code-frame", "^7.18.6")],
+                descriptors: vec![(
+                    "@babel/code-frame",
+                    if with_bug { "^7.18.6" } else { "npm:^7.18.6" }
+                )],
                 dependencies: vec![("@babel/highlight", "^7.18.6")],
                 integrity: if with_bug {
                     "sha512-TDCmlK5eOvH+eH7cdAFlNXeVJqWIQ7gW9tY1GJIpUtFb6CmjVyq2VM3u71bOyR8CRihcCgMUYoDNyLXao3+70Q=="
@@ -526,7 +525,7 @@ mod tests {
             &Entry {
                 name: "yargs",
                 version: "17.5.1",
-                descriptors: vec![("yargs", "^17.5.1")],
+                descriptors: vec![("yargs", if with_bug { "^17.5.1" } else { "npm:^17.5.1" })],
                 dependencies: vec![
                     ("cliui", "^7.0.2"),
                     ("escalade", "^3.1.1"),
@@ -605,21 +604,21 @@ __metadata:
                 Entry {
                     name: "@babel/helper-plugin-utils",
                     version: "7.16.7",
-                    descriptors: vec![("@babel/helper-plugin-utils", "^7.16.7")],
+                    descriptors: vec![("@babel/helper-plugin-utils", "npm:^7.16.7")],
                     integrity: "d08dd86554a186c2538547cd537552e4029f704994a9201d41d82015c10ed7f58f9036e8d1527c3760f042409163269d308b0b3706589039c5f1884619c6d4ce",
                     ..Default::default()
                 },
                 Entry {
                     name: "@babel/plugin-transform-for-of",
                     version: "7.16.7",
-                    descriptors: vec![("@babel/plugin-transform-for-of", "^7.12.1")],
+                    descriptors: vec![("@babel/plugin-transform-for-of", "npm:^7.12.1")],
                     dependencies: vec![("@babel/helper-plugin-utils", "^7.16.7")],
                     integrity: "35c9264ee4bef814818123d70afe8b2f0a85753a0a9dc7b73f93a71cadc5d7de852f1a3e300a7c69a491705805704611de1e2ccceb5686f7828d6bca2e5a7306",
                 },
                 Entry {
                     name: "@babel/runtime",
                     version: "7.17.9",
-                    descriptors: vec![("@babel/runtime", "^7.12.5")],
+                    descriptors: vec![("@babel/runtime", "npm:^7.12.5")],
                     dependencies: vec![("regenerator-runtime", "^0.13.4")],
                     integrity: "4d56bdb82890f386d5a57c40ef985a0ed7f0a78f789377a2d0c3e8826819e0f7f16ba0fe906d9b2241c5f7ca56630ef0653f5bb99f03771f7b87ff8af4bf5fe3"
                 },
@@ -662,7 +661,7 @@ __metadata:
                     name: "foo",
                     version: "0.0.0-use.local",
                     integrity: "",
-                    descriptors: vec![("foo", ".")],
+                    descriptors: vec![("foo", "workspace:.")],
                     dependencies: vec![("valib-aliased", "1.0.0 || 1.0.1")],
                 },
                 Entry {
@@ -936,8 +935,8 @@ __metadata:
             version "2.0.3"
         "#,
             vec![
-                ("@nodelib/fs.stat", "2.0.3"),
-                ("@nodelib/fs.stat", "^2.0.2"),
+                ("@nodelib/fs.stat", "npm:2.0.3"),
+                ("@nodelib/fs.stat", "npm:^2.0.2"),
             ],
         );
 
@@ -945,7 +944,7 @@ __metadata:
             r#"foolib@npm:1.2.3 || ^2.0.0":
             version "1.2.3"
         "#,
-            vec![("foolib", "1.2.3 || ^2.0.0")],
+            vec![("foolib", "npm:1.2.3 || ^2.0.0")],
         );
     }
 
@@ -1036,5 +1035,25 @@ __metadata:
         let content = std::fs::read_to_string("tests/github_version/bun.lock").unwrap();
         let res = parse(&content);
         assert!(!res.is_err());
+    }
+
+    #[test]
+    fn supports_git_url_descriptor() {
+        let content = std::fs::read_to_string("tests/v1_git_url/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+
+        assert_eq!(
+            res.last().unwrap(),
+            &Entry {
+                name: "minimatch",
+                version: "10.0.1",
+                integrity: "",
+                dependencies: vec![("brace-expansion", "^2.0.1")],
+                descriptors: vec![(
+                    "minimatch",
+                    "https://github.com/isaacs/minimatch.git#v10.0.1"
+                )],
+            }
+        );
     }
 }
