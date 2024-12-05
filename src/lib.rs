@@ -249,7 +249,7 @@ fn double_quoted_text(input: &str) -> Res<&str, &str> {
     delimited(tag("\""), take_until("\""), tag("\""))(input)
 }
 
-fn entry_single_descriptor<'a>(input: &'a str) -> Res<&str, (&str, &str)> {
+fn entry_single_descriptor<'a>(input: &'a str) -> Res<&'a str, (&'a str, &'a str)> {
     let (i, (_, desc)) = tuple((opt(tag("\"")), is_not(",\"\n")))(input)?;
     let i = i.strip_prefix('"').unwrap_or(i);
 
@@ -287,7 +287,7 @@ fn entry_single_descriptor<'a>(input: &'a str) -> Res<&str, (&str, &str)> {
     Ok((i, (name, version)))
 }
 
-fn entry_descriptors<'a>(input: &'a str) -> Res<&str, Vec<(&str, &str)>> {
+fn entry_descriptors<'a>(input: &'a str) -> Res<&'a str, Vec<(&'a str, &'a str)>> {
     // foo@1:
     // "foo@npm:1.2":
     // "foo@1.2", "foo@npm:3.4":
