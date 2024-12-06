@@ -1095,7 +1095,7 @@ __metadata:
         let res = parse_str(&content).unwrap();
 
         assert_eq!(
-            res.last().unwrap(),
+            res.entries.last().unwrap(),
             &Entry {
                 name: "minimatch",
                 version: "10.0.1",
