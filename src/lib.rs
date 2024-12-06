@@ -2,13 +2,13 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_till, take_until},
     character::{
-        complete::{line_ending, not_line_ending, one_of, space0, space1},
+        complete::{digit1, line_ending, not_line_ending, one_of, space0, space1},
         streaming::multispace0,
     },
-    combinator::{eof, fail, opt, recognize},
+    combinator::{cond, eof, fail, map_res, opt, recognize},
     error::{context, ParseError, VerboseError},
     multi::{count, many0, many1, many_till, separated_list1},
-    sequence::{delimited, tuple},
+    sequence::{delimited, preceded, terminated, tuple},
     AsChar, IResult,
 };
 
@@ -27,6 +27,21 @@ pub enum YarnLockError {
     },
 }
 
+/// A parsed yarn.lock file.
+#[derive(Debug)]
+pub struct Lockfile<'a> {
+    pub entries: Vec<Entry<'a>>,
+    pub generator: Generator,
+    pub version: u8,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
+pub enum Generator {
+    Yarn,
+    Bun,
+}
+
 /// yarn.lock entry.
 /// It only shows the name of the dependency and the version.
 #[derive(Debug, PartialEq, Eq, Default)]
@@ -41,7 +56,7 @@ pub struct Entry<'a> {
 /// Accepts the `yarn.lock` content and returns all the entries.
 /// # Errors
 /// - `YarnLockError`
-pub fn parse_str(content: &str) -> Result<Vec<Entry>, YarnLockError> {
+pub fn parse_str(content: &str) -> Result<Lockfile, YarnLockError> {
     parse(content).map(|(_, entries)| entries).map_err(|e| {
         e.map(|ve| {
             let errors = ve
@@ -55,20 +70,46 @@ pub fn parse_str(content: &str) -> Result<Vec<Entry>, YarnLockError> {
     })
 }
 
-fn parse(input: &str) -> Res<&str, Vec<Entry>> {
-    let (i, _) = yarn_lock_header(input)?;
-    let (i, _) = opt(yarn_lock_metadata)(i)?;
+fn parse(input: &str) -> Res<&str, Lockfile> {
+    let (i, (is_bun, is_v1)) = yarn_lock_header(input)?;
+    let (i, version) = cond(!is_v1, yarn_lock_metadata)(i)?;
     let (i, mut entries) = many0(entry)(i)?;
+
+    let generator = if is_bun {
+        Generator::Bun
+    } else {
+        Generator::Yarn
+    };
+    let version = match (is_v1, version) {
+        (true, None) => 1,
+        (false, Some(v)) => v,
+        // This shouldn't happen.
+        (true, Some(_)) | (false, None) => unreachable!(),
+    };
 
     // allow one extra line at the end as per #13
     if i.is_empty() {
-        return Ok((i, entries));
+        return Ok((
+            i,
+            Lockfile {
+                entries,
+                generator,
+                version,
+            },
+        ));
     }
 
     let (i, final_entry) = entry_final(i)?;
     entries.push(final_entry);
 
-    Ok((i, entries))
+    Ok((
+        i,
+        Lockfile {
+            entries,
+            generator,
+            version,
+        },
+    ))
 }
 
 fn take_till_line_end(input: &str) -> Res<&str, &str> {
@@ -85,31 +126,38 @@ fn take_till_optional_line_end(input: &str) -> Res<&str, &str> {
     )))(input)
 }
 
-fn yarn_lock_header(input: &str) -> Res<&str, &str> {
-    // 2 lines for Yarn
-    // 3 lines for Bun
-    let lines = if input
+fn yarn_lock_header(input: &str) -> Res<&str, (bool, bool)> {
+    let is_bun = input
         .lines()
         .skip(2)
         .take(1)
-        .any(|l| l.starts_with("# bun"))
-    {
-        3
-    } else {
-        2
-    };
-    recognize(tuple((count(take_till_line_end, lines), multispace0)))(input)
+        .any(|l| l.starts_with("# bun"));
+    let is_v1 = input
+        .lines()
+        .skip(1)
+        .take(1)
+        .any(|l| l.starts_with("# yarn lockfile v1"));
+    // 2 lines for Yarn
+    // 3 lines for Bun
+    let lines = if is_bun { 3 } else { 2 };
+    let (input, _) = recognize(tuple((count(take_till_line_end, lines), multispace0)))(input)?;
+    Ok((input, (is_bun, is_v1)))
 }
 
-fn yarn_lock_metadata(input: &str) -> Res<&str, &str> {
+fn yarn_lock_metadata(input: &str) -> Res<&str, u8> {
     context(
         "metadata",
-        recognize(tuple((
-            tag("__metadata:"),
-            take_till_line_end,
-            many_till(take_till_line_end, recognize(tuple((space0, line_ending)))),
-            multispace0,
-        ))),
+        terminated(
+            preceded(
+                tuple((tag("__metadata:"), line_ending, space1, tag("version: "))),
+                map_res(digit1, |d: &str| d.parse()),
+            ),
+            tuple((
+                line_ending,
+                many_till(take_till_line_end, tuple((space0, line_ending))),
+                multispace0,
+            )),
+        ),
     )(input)
 }
 
@@ -355,10 +403,12 @@ where
 mod tests {
     use super::*;
 
-    fn assert_v1(res: (&str, Vec<Entry>)) {
+    fn assert_v1(res: (&str, Lockfile)) {
         assert_eq!(res.0, "");
+        assert_eq!(res.1.generator, Generator::Yarn);
+        assert_eq!(res.1.version, 1);
         assert_eq!(
-            res.1.first().unwrap(),
+            res.1.entries.first().unwrap(),
             &Entry {
                 name: "@babel/code-frame",
                 version: "7.12.13",
@@ -369,7 +419,7 @@ mod tests {
         );
 
         assert_eq!(
-            res.1.last().unwrap(),
+            res.1.entries.last().unwrap(),
             &Entry {
                 name: "yargs",
                 version: "9.0.1",
@@ -404,19 +454,19 @@ mod tests {
     #[test]
     fn parse_bun_basic_v1() {
         let content = std::fs::read_to_string("tests/bun_basic/yarn.lock").unwrap();
-        let res = parse(&content);
+        let (_, res) = parse(&content).unwrap();
 
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap().1.len(), 1);
+        assert_eq!(res.generator, Generator::Bun);
+        assert_eq!(res.entries.len(), 1);
     }
 
     #[test]
     fn parse_bun_workspaces_v1() {
         let content = std::fs::read_to_string("tests/bun_workspaces/yarn.lock").unwrap();
-        let res = parse(&content);
+        let (_, res) = parse(&content).unwrap();
 
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap().1.len(), 19);
+        assert_eq!(res.generator, Generator::Bun);
+        assert_eq!(res.entries.len(), 19);
     }
 
     #[test]
@@ -461,7 +511,7 @@ mod tests {
     fn parse_v1_doc_from_memory_works_v1() {
         fn assert(input: &str, expect: &[Entry]) {
             let res = parse(input).unwrap();
-            assert_eq!(res.1, expect);
+            assert_eq!(res.1.entries, expect);
         }
 
         assert(
@@ -500,10 +550,12 @@ mod tests {
         );
     }
 
-    fn assert_v6(res: (&str, Vec<Entry>), with_bug: bool) {
+    fn assert_v6(res: (&str, Lockfile), with_bug: bool) {
         assert_eq!(res.0, "");
+        assert_eq!(res.1.generator, Generator::Yarn);
+        assert_eq!(res.1.version, if with_bug { 1 } else { 6 });
         assert_eq!(
-            res.1.first().unwrap(),
+            res.1.entries.first().unwrap(),
             &Entry {
                 name: "@babel/code-frame",
                 version: "7.18.6",
@@ -521,7 +573,7 @@ mod tests {
         );
 
         assert_eq!(
-            res.1.last().unwrap(),
+            res.1.entries.last().unwrap(),
             &Entry {
                 name: "yargs",
                 version: "17.5.1",
@@ -562,7 +614,7 @@ mod tests {
     fn parse_v6_doc_from_memory_works() {
         fn assert(input: &str, expect: &[Entry]) {
             let res = parse(input).unwrap();
-            assert_eq!(res.1, expect);
+            assert_eq!(res.1.entries, expect);
         }
 
         assert(
@@ -630,7 +682,7 @@ __metadata:
     fn parse_v6_doc_from_memory_with_npm_in_dependencies_works() {
         fn assert(input: &str, expect: &[Entry]) {
             let res = parse(input).unwrap();
-            assert_eq!(res.1, expect);
+            assert_eq!(res.1.entries, expect);
         }
 
         assert(
