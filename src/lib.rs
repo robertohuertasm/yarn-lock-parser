@@ -270,15 +270,7 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
 }
 
 fn dependency_version(input: &str) -> Res<&str, &str> {
-    alt((double_quoted_text, not_line_ending))(input).map(|(i, version)| {
-        (
-            i,
-            // e.g. 1.2.3
-            // e.g. "1.2.3"
-            // e.g. "npm:foo@1.0.0 || 1.0.1" # it happens with aliased deps
-            version.rsplit_once('@').unwrap_or(("", version)).1,
-        )
-    })
+    alt((double_quoted_text, not_line_ending))(input)
 }
 
 fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
@@ -313,8 +305,6 @@ fn entry_single_descriptor<'a>(input: &'a str) -> Res<&'a str, (&'a str, &'a str
     let i = i.strip_prefix('"').unwrap_or(i);
 
     let (_, (name, version)) = context("entry single descriptor", |i: &'a str| {
-        let version_start_idx = i.rfind('@').map(|idx| idx + 1);
-
         #[allow(clippy::manual_strip)]
         let name_end_idx = if i.starts_with('@') {
             i[1..].find('@').map(|idx| idx + 1)
@@ -322,7 +312,7 @@ fn entry_single_descriptor<'a>(input: &'a str) -> Res<&'a str, (&'a str, &'a str
             i.find('@')
         };
 
-        if name_end_idx.is_none() || version_start_idx.is_none() {
+        let Some(name_end_idx) = name_end_idx else {
             return Err(nom::Err::Failure(
                 nom::error::VerboseError::from_error_kind(
                     "version format error: @ not found",
@@ -331,10 +321,7 @@ fn entry_single_descriptor<'a>(input: &'a str) -> Res<&'a str, (&'a str, &'a str
             ));
         };
 
-        let (name, version) = (
-            &i[..name_end_idx.unwrap()],
-            &i[version_start_idx.unwrap()..],
-        );
+        let (name, version) = (&i[..name_end_idx], &i[name_end_idx + 1..]);
 
         Ok((i, (name, version)))
     })(desc)?;
@@ -767,14 +754,14 @@ __metadata:
                     resolved: "foo@workspace:.",
                     integrity: "",
                     descriptors: vec![("foo", "workspace:.")],
-                    dependencies: vec![("valib-aliased", "1.0.0 || 1.0.1")],
+                    dependencies: vec![("valib-aliased", "npm:valib@1.0.0 || 1.0.1")],
                 },
                 Entry {
                     name: "valib-aliased",
                     version: "1.0.0",
                     resolved: "valib@npm:1.0.0",
                     integrity: "ad4f5a0b5dde5ab5e3cc87050fad4d7096c32797454d8e37c7dadf3455a43a7221a3caaa0ad9e72b8cd96668168e5a25d5f0072e21990f7f80a64b1a4e34e921",
-                    descriptors: vec![("valib-aliased", "1.0.0 || 1.0.1")],
+                    descriptors: vec![("valib-aliased", "npm:valib@1.0.0 || 1.0.1")],
                     dependencies: vec![],
                 },
             ],
@@ -1168,6 +1155,27 @@ __metadata:
                 descriptors: vec![(
                     "minimatch",
                     "https://github.com/isaacs/minimatch.git#v10.0.1"
+                )],
+            }
+        );
+    }
+
+    #[test]
+    fn supports_at_in_version_descriptor() {
+        let content = std::fs::read_to_string("tests/v1_git_ssh/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+
+        assert_eq!(
+            res.entries.last().unwrap(),
+            &Entry {
+                name: "node-semver",
+                version: "7.6.3",
+                resolved: "ssh://git@github.com/npm/node-semver.git#0a12d6c7debb1dc82d8645c770e77c47bac5e1ea",
+                integrity: "",
+                dependencies: vec![],
+                descriptors: vec![(
+                    "node-semver",
+                    "ssh://git@github.com/npm/node-semver.git#semver:^7.5.0"
                 )],
             }
         );
