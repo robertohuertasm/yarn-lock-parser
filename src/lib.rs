@@ -9,7 +9,7 @@ use nom::{
     error::{context, ParseError},
     multi::{count, many0, many1, many_till, separated_list1},
     sequence::{delimited, preceded, terminated},
-    AsChar, IResult, Parser,
+    IResult, Parser,
 };
 use nom_language::error::VerboseError;
 
@@ -394,6 +394,7 @@ fn entry_resolved(input: &str) -> Res<&str, EntryItem> {
 fn entry_version(input: &str) -> Res<&str, EntryItem> {
     // "version \"7.12.13\"\r\n"
     // "version \"workspace:foobar\"\r\n"
+    // "version \"https://s.lnl.gay/@a/verboden(name~'!*)/-/verboden(name~'!*)-1.0.0.tgz\"\r\n"
 
     context(
         "version",
@@ -414,21 +415,25 @@ fn entry_version(input: &str) -> Res<&str, EntryItem> {
     .map(|(i, (_, _, _, _, _, _, _, version, _, _))| (i, EntryItem::Version(version)))
 }
 
-#[allow(clippy::needless_pass_by_value)]
-fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
-where
-    T: nom::Input,
-    <T as nom::Input>::Item: AsChar,
-{
-    let allowed_chars = ['.', '-', '@', ':', '/', '#'];
-    input.split_at_position1_complete(
-        |item| {
-            let c: char = item.as_char();
-            // allowed chars for version
-            !(allowed_chars.contains(&c) || c.is_alphanum())
-        },
+fn is_version(input: &str) -> Res<&str, &str> {
+    for (idx, byte) in input.as_bytes().iter().enumerate() {
+        if !matches!(
+            byte,
+            // Regular semver
+            b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z'
+            | b'.' | b'-' | b'+'
+            // URL chars, which might appear due to Bun bugs in yarn output.
+            | b'@' | b':' | b'/' | b'#' | b'%'
+            // Chars exempt from ECMA-262 encodeURIComponent.
+            | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+        ) {
+            return Ok((&input[idx..], &input[..idx]));
+        }
+    }
+    Err(nom::Err::Error(VerboseError::from_error_kind(
+        input,
         nom::error::ErrorKind::AlphaNumeric,
-    )
+    )))
 }
 
 #[cfg(test)]
@@ -1189,5 +1194,27 @@ __metadata:
                 )],
             }
         );
+    }
+
+    #[test]
+    fn supports_version_url() {
+        // https://github.com/oven-sh/bun/issues/17091
+        let content = std::fs::read_to_string("tests/bun_version_url/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+
+        assert_eq!(
+            res.entries.last().unwrap(),
+            &Entry {
+                name: "@a/verboden(name~'!*)",
+                version: "https://s.lnl.gay/@a/verboden(name~'!*)/-/verboden(name~'!*)-1.0.0.tgz",
+                resolved: "https://s.lnl.gay/@a/verboden(name~'!*)/-/verboden(name~'!*)-1.0.0.tgz",
+                integrity: "",
+                dependencies: vec![],
+                descriptors: vec![(
+                    "@a/verboden(name~'!*)",
+                    "https://s.lnl.gay/@a/verboden(name~'!*)/-/verboden(name~'!*)-1.0.0.tgz"
+                ),],
+            }
+        )
     }
 }
