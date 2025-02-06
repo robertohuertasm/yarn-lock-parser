@@ -5,12 +5,13 @@ use nom::{
         complete::{digit1, line_ending, not_line_ending, one_of, space0, space1},
         streaming::multispace0,
     },
-    combinator::{cond, eof, fail, map, map_res, opt, recognize},
-    error::{context, ParseError, VerboseError},
+    combinator::{cond, eof, map, map_res, opt, recognize},
+    error::{context, ParseError},
     multi::{count, many0, many1, many_till, separated_list1},
-    sequence::{delimited, preceded, terminated, tuple},
-    AsChar, IResult,
+    sequence::{delimited, preceded, terminated},
+    AsChar, IResult, Parser,
 };
+use nom_language::error::VerboseError;
 
 use thiserror::Error;
 
@@ -73,8 +74,8 @@ pub fn parse_str(content: &str) -> Result<Lockfile, YarnLockError> {
 
 fn parse(input: &str) -> Res<&str, Lockfile> {
     let (i, (is_bun, is_v1)) = yarn_lock_header(input)?;
-    let (i, version) = cond(!is_v1, yarn_lock_metadata)(i)?;
-    let (i, mut entries) = many0(entry)(i)?;
+    let (i, version) = cond(!is_v1, yarn_lock_metadata).parse(i)?;
+    let (i, mut entries) = many0(entry).parse(i)?;
 
     let generator = if is_bun {
         Generator::Bun
@@ -114,17 +115,15 @@ fn parse(input: &str) -> Res<&str, Lockfile> {
 }
 
 fn take_till_line_end(input: &str) -> Res<&str, &str> {
-    recognize(tuple((
-        alt((take_until("\n"), take_until("\r\n"))),
-        take(1usize),
-    )))(input)
+    recognize((alt((take_until("\n"), take_until("\r\n"))), take(1usize))).parse(input)
 }
 
 fn take_till_optional_line_end(input: &str) -> Res<&str, &str> {
-    recognize(tuple((
+    recognize((
         alt((take_until("\n"), take_until("\r\n"), space0)),
         take(1usize),
-    )))(input)
+    ))
+    .parse(input)
 }
 
 fn yarn_lock_header(input: &str) -> Res<&str, (bool, bool)> {
@@ -141,7 +140,7 @@ fn yarn_lock_header(input: &str) -> Res<&str, (bool, bool)> {
     // 2 lines for Yarn
     // 3 lines for Bun
     let lines = if is_bun { 3 } else { 2 };
-    let (input, _) = recognize(tuple((count(take_till_line_end, lines), multispace0)))(input)?;
+    let (input, _) = recognize((count(take_till_line_end, lines), multispace0)).parse(input)?;
     Ok((input, (is_bun, is_v1)))
 }
 
@@ -150,30 +149,34 @@ fn yarn_lock_metadata(input: &str) -> Res<&str, u8> {
         "metadata",
         terminated(
             preceded(
-                tuple((tag("__metadata:"), line_ending, space1, tag("version: "))),
+                (tag("__metadata:"), line_ending, space1, tag("version: ")),
                 map_res(digit1, |d: &str| d.parse()),
             ),
-            tuple((
+            (
                 line_ending,
-                many_till(take_till_line_end, tuple((space0, line_ending))),
+                many_till(take_till_line_end, (space0, line_ending)),
                 multispace0,
-            )),
+            ),
         ),
-    )(input)
+    )
+    .parse(input)
 }
 
 fn entry_final(input: &str) -> Res<&str, Entry> {
-    recognize(many_till(take_till_optional_line_end, eof))(input).and_then(|(i, capture)| {
-        let (_, my_entry) = parse_entry(capture)?;
-        Ok((i, my_entry))
-    })
+    recognize(many_till(take_till_optional_line_end, eof))
+        .parse(input)
+        .and_then(|(i, capture)| {
+            let (_, my_entry) = parse_entry(capture)?;
+            Ok((i, my_entry))
+        })
 }
 
 fn entry(input: &str) -> Res<&str, Entry> {
     recognize(many_till(
         take_till_line_end,
-        recognize(tuple((space0, line_ending))),
-    ))(input)
+        recognize((space0, line_ending)),
+    ))
+    .parse(input)
     .and_then(|(i, capture)| {
         let (_, my_entry) = parse_entry(capture)?;
         Ok((i, my_entry))
@@ -196,7 +199,7 @@ fn unknown_line(input: &str) -> Res<&str, EntryItem> {
 fn integrity(input: &str) -> Res<&str, EntryItem> {
     context(
         "integrity",
-        tuple((
+        (
             space1,
             opt(tag("\"")),
             alt((tag("checksum"), tag("integrity"))),
@@ -205,8 +208,9 @@ fn integrity(input: &str) -> Res<&str, EntryItem> {
             space1,
             opt(tag("\"")),
             take_till(|c| c == '"' || c == '\n' || c == '\r'),
-        )),
-    )(input)
+        ),
+    )
+    .parse(input)
     .map(|(i, (_, _, _, _, _, _, _, integrity))| (i, EntryItem::Integrity(integrity)))
 }
 
@@ -217,12 +221,14 @@ fn entry_item(input: &str) -> Res<&str, EntryItem> {
         integrity,
         entry_resolved,
         unknown_line,
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_entry(input: &str) -> Res<&str, Entry> {
-    context("entry", tuple((entry_descriptors, many1(entry_item))))(input).and_then(
-        |(next_input, res)| {
+    context("entry", (entry_descriptors, many1(entry_item)))
+        .parse(input)
+        .and_then(|(next_input, res)| {
             let (descriptors, entry_items) = res;
 
             // descriptors is guaranteed to be of length >= 1
@@ -246,12 +252,10 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
             }
 
             if version.is_empty() {
-                return Err(nom::Err::Failure(
-                    nom::error::VerboseError::from_error_kind(
-                        "version is empty for an entry",
-                        nom::error::ErrorKind::Fail,
-                    ),
-                ));
+                return Err(nom::Err::Failure(VerboseError::from_error_kind(
+                    "version is empty for an entry",
+                    nom::error::ErrorKind::Fail,
+                )));
             }
 
             Ok((
@@ -265,19 +269,18 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
                     descriptors,
                 },
             ))
-        },
-    )
+        })
 }
 
 fn dependency_version(input: &str) -> Res<&str, &str> {
-    alt((double_quoted_text, not_line_ending))(input)
+    alt((double_quoted_text, not_line_ending)).parse(input)
 }
 
 fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
-    let (input, (indent, _, _)) = tuple((space1, tag("dependencies:"), line_ending))(input)?;
+    let (input, (indent, _, _)) = (space1, tag("dependencies:"), line_ending).parse(input)?;
 
     let dependencies_parser = many1(move |i| {
-        tuple((
+        (
             tag(indent),  // indented as much as the parent...
             space1,       // ... plus extra indentation
             is_not(": "), // package name
@@ -285,10 +288,12 @@ fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
             space0,
             dependency_version,         // version
             alt((line_ending, space0)), // newline or space
-        ))(i)
-        .map(|(i, (_, _, p, _, _, v, _))| (i, (p.trim_matches('"'), v)))
+        )
+            .parse(i)
+            .map(|(i, (_, _, p, _, _, v, _))| (i, (p.trim_matches('"'), v)))
     });
-    context("dependencies", dependencies_parser)(input)
+    context("dependencies", dependencies_parser)
+        .parse(input)
         .map(|(i, res)| (i, EntryItem::Dependencies(res)))
 }
 
@@ -297,11 +302,11 @@ fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
  * it can't happen.
  */
 fn double_quoted_text(input: &str) -> Res<&str, &str> {
-    delimited(tag("\""), take_until("\""), tag("\""))(input)
+    delimited(tag("\""), take_until("\""), tag("\"")).parse(input)
 }
 
 fn entry_single_descriptor<'a>(input: &'a str) -> Res<&'a str, (&'a str, &'a str)> {
-    let (i, (_, desc)) = tuple((opt(tag("\"")), is_not(",\"\n")))(input)?;
+    let (i, (_, desc)) = (opt(tag("\"")), is_not(",\"\n")).parse(input)?;
     let i = i.strip_prefix('"').unwrap_or(i);
 
     let (_, (name, version)) = context("entry single descriptor", |i: &'a str| {
@@ -313,18 +318,17 @@ fn entry_single_descriptor<'a>(input: &'a str) -> Res<&'a str, (&'a str, &'a str
         };
 
         let Some(name_end_idx) = name_end_idx else {
-            return Err(nom::Err::Failure(
-                nom::error::VerboseError::from_error_kind(
-                    "version format error: @ not found",
-                    nom::error::ErrorKind::Fail,
-                ),
-            ));
+            return Err(nom::Err::Failure(VerboseError::from_error_kind(
+                "version format error: @ not found",
+                nom::error::ErrorKind::Fail,
+            )));
         };
 
         let (name, version) = (&i[..name_end_idx], &i[name_end_idx + 1..]);
 
         Ok((i, (name, version)))
-    })(desc)?;
+    })
+    .parse(desc)?;
 
     Ok((i, (name, version)))
 }
@@ -346,16 +350,20 @@ fn entry_descriptors<'a>(input: &'a str) -> Res<&'a str, Vec<(&'a str, &'a str)>
                 .or_else(|| line.strip_suffix(":\n"));
 
             if line.is_none() {
-                fail::<_, &str, _>("descriptor does not end with : followed by newline")?;
+                return Err(nom::Err::Failure(VerboseError::from_error_kind(
+                    "descriptor does not end with : followed by newline",
+                    nom::error::ErrorKind::Fail,
+                )));
             }
             let line = line.unwrap();
 
-            let (_, res) =
-                separated_list1(tuple((opt(tag("\"")), tag(", "))), entry_single_descriptor)(line)?;
+            let (_, res) = separated_list1((opt(tag("\"")), tag(", ")), entry_single_descriptor)
+                .parse(line)?;
 
             Ok((input, res))
         },
-    )(input)
+    )
+    .parse(input)
 }
 
 fn entry_resolved(input: &str) -> Res<&str, EntryItem> {
@@ -365,7 +373,7 @@ fn entry_resolved(input: &str) -> Res<&str, EntryItem> {
     context(
         "resolved",
         preceded(
-            tuple((
+            (
                 space1,
                 opt(tag("\"")),
                 alt((tag("resolved"), tag("resolution"))),
@@ -373,13 +381,14 @@ fn entry_resolved(input: &str) -> Res<&str, EntryItem> {
                 opt(tag(":")),
                 space1,
                 tag("\""),
-            )),
+            ),
             terminated(
                 map(is_not("\"\r\n"), EntryItem::Resolved),
-                tuple((tag("\""), line_ending)),
+                (tag("\""), line_ending),
             ),
         ),
-    )(input)
+    )
+    .parse(input)
 }
 
 fn entry_version(input: &str) -> Res<&str, EntryItem> {
@@ -388,7 +397,7 @@ fn entry_version(input: &str) -> Res<&str, EntryItem> {
 
     context(
         "version",
-        tuple((
+        (
             space1,
             opt(tag("\"")),
             tag("version"),
@@ -399,16 +408,17 @@ fn entry_version(input: &str) -> Res<&str, EntryItem> {
             is_version,
             opt(tag("\"")),
             line_ending,
-        )),
-    )(input)
+        ),
+    )
+    .parse(input)
     .map(|(i, (_, _, _, _, _, _, _, version, _, _))| (i, EntryItem::Version(version)))
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn is_version<T, E: nom::error::ParseError<T>>(input: T) -> IResult<T, T, E>
 where
-    T: nom::InputTakeAtPosition,
-    <T as nom::InputTakeAtPosition>::Item: AsChar,
+    T: nom::Input,
+    <T as nom::Input>::Item: AsChar,
 {
     let allowed_chars = ['.', '-', '@', ':', '/', '#'];
     input.split_at_position1_complete(
