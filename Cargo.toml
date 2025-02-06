@@ -19,6 +19,6 @@ exclude = [".github/*", "tests/*"]
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-nom = "8.0.0-beta.1"
-nom-language = "0.1.0-alpha.1"
-thiserror = "2.0.4"
+nom = "8.0.0"
+nom-language = "0.1.0"
+thiserror = "2.0.11"
