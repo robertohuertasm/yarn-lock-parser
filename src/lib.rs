@@ -46,6 +46,7 @@ pub enum Generator {
 /// yarn.lock entry.
 /// It only shows the name of the dependency and the version.
 #[derive(Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Entry<'a> {
     pub name: &'a str,
     pub version: &'a str,
@@ -53,6 +54,9 @@ pub struct Entry<'a> {
     pub integrity: &'a str,
     pub dependencies: Vec<(&'a str, &'a str)>,
     pub optional_dependencies: Vec<(&'a str, &'a str)>,
+    pub dependencies_meta: Vec<(&'a str, DepMeta)>,
+    pub peer_dependencies: Vec<(&'a str, &'a str)>,
+    pub peer_dependencies_meta: Vec<(&'a str, DepMeta)>,
     pub descriptors: Vec<(&'a str, &'a str)>,
 }
 
@@ -190,6 +194,9 @@ enum EntryItem<'a> {
     Resolved(&'a str),
     Dependencies(Vec<(&'a str, &'a str)>),
     OptionalDependencies(Vec<(&'a str, &'a str)>),
+    PeerDependencies(Vec<(&'a str, &'a str)>),
+    DepsMeta(Vec<(&'a str, DepMeta)>),
+    PeersMeta(Vec<(&'a str, DepMeta)>),
     Integrity(&'a str),
     Unknown(&'a str),
 }
@@ -220,9 +227,9 @@ fn entry_item(input: &str) -> Res<&str, EntryItem<'_>> {
     alt((
         entry_version,
         parse_dependencies,
-        parse_optional_dependencies,
         integrity,
         entry_resolved,
+        parse_deps_meta,
         unknown_line,
     ))
     .parse(input)
@@ -243,6 +250,9 @@ fn parse_entry(input: &str) -> Res<&str, Entry<'_>> {
             let mut resolved = "";
             let mut dependencies = Vec::new();
             let mut optional_dependencies = Vec::new();
+            let mut dependencies_meta = Vec::new();
+            let mut peer_dependencies = Vec::new();
+            let mut peer_dependencies_meta = Vec::new();
             let mut integrity = "";
 
             for ei in entry_items {
@@ -251,7 +261,10 @@ fn parse_entry(input: &str) -> Res<&str, Entry<'_>> {
                     EntryItem::Resolved(r) => resolved = r,
                     EntryItem::Dependencies(d) => dependencies = d,
                     EntryItem::OptionalDependencies(d) => optional_dependencies = d,
+                    EntryItem::PeerDependencies(d) => peer_dependencies = d,
                     EntryItem::Integrity(c) => integrity = c,
+                    EntryItem::DepsMeta(m) => dependencies_meta = m,
+                    EntryItem::PeersMeta(m) => peer_dependencies_meta = m,
                     EntryItem::Unknown(_) => (),
                 }
             }
@@ -272,6 +285,9 @@ fn parse_entry(input: &str) -> Res<&str, Entry<'_>> {
                     integrity,
                     dependencies,
                     optional_dependencies,
+                    dependencies_meta,
+                    peer_dependencies,
+                    peer_dependencies_meta,
                     descriptors,
                 },
             ))
@@ -283,7 +299,23 @@ fn dependency_version(input: &str) -> Res<&str, &str> {
 }
 
 fn parse_dependencies(input: &str) -> Res<&str, EntryItem<'_>> {
-    let (input, (indent, _, _)) = (space1, tag("dependencies:"), line_ending).parse(input)?;
+    enum DepsKind {
+        Deps,
+        // yarn v1 only
+        Optional,
+        // yarn berry only
+        Peer,
+    }
+    let (input, (indent, key, _)) = (
+        space1,
+        alt((
+            map(tag("dependencies:"), |_| DepsKind::Deps),
+            map(tag("optionalDependencies:"), |_| DepsKind::Optional),
+            map(tag("peerDependencies:"), |_| DepsKind::Peer),
+        )),
+        line_ending,
+    )
+        .parse(input)?;
 
     let dependencies_parser = many1(move |i| {
         (
@@ -300,29 +332,97 @@ fn parse_dependencies(input: &str) -> Res<&str, EntryItem<'_>> {
     });
     context("dependencies", dependencies_parser)
         .parse(input)
-        .map(|(i, res)| (i, EntryItem::Dependencies(res)))
+        .map(|(i, res)| {
+            (
+                i,
+                match key {
+                    DepsKind::Deps => EntryItem::Dependencies(res),
+                    DepsKind::Optional => EntryItem::OptionalDependencies(res),
+                    DepsKind::Peer => EntryItem::PeerDependencies(res),
+                },
+            )
+        })
 }
 
-fn parse_optional_dependencies(input: &str) -> Res<&str, EntryItem<'_>> {
-    let (input, (indent, _, _)) =
-        (space1, tag("optionalDependencies:"), line_ending).parse(input)?;
+#[derive(Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct DepMeta {
+    pub optional: Option<bool>,
+}
 
-    let optional_dependencies_parser = many1(move |i| {
-        (
-            tag(indent),  // indented as much as the parent...
-            space1,       // ... plus extra indentation
-            is_not(": "), // package name
-            one_of(": "),
-            space0,
-            dependency_version,         // version
-            alt((line_ending, space0)), // newline or space
-        )
-            .parse(i)
-            .map(|(i, (_, _, p, _, _, v, _))| (i, (p.trim_matches('"'), v)))
-    });
-    context("optionalDependencies", optional_dependencies_parser)
+fn parse_deps_meta(input: &str) -> Res<&str, EntryItem<'_>> {
+    let (input, indent_top) = space1(input)?;
+    enum MetaKind {
+        Deps,
+        Peers,
+    }
+    let (input, key) = terminated(
+        alt((
+            map(tag("dependenciesMeta:"), |_| MetaKind::Deps),
+            map(tag("peerDependenciesMeta:"), |_| MetaKind::Peers),
+        )),
+        line_ending,
+    )
+    .parse(input)?;
+    many1(|i| deps_meta_dep(i, indent_top))
         .parse(input)
-        .map(|(i, res)| (i, EntryItem::OptionalDependencies(res)))
+        .map(|(i, dm)| {
+            (
+                i,
+                match key {
+                    MetaKind::Deps => EntryItem::DepsMeta(dm),
+                    MetaKind::Peers => EntryItem::PeersMeta(dm),
+                },
+            )
+        })
+}
+
+fn deps_meta_dep<'a>(input: &'a str, indent_top: &'a str) -> Res<&'a str, (&'a str, DepMeta)> {
+    let (input, indent_dep) = recognize((tag(indent_top), space1)).parse(input)?;
+    let (input, dep_name) = take_until(":")(input)?;
+    let (input, _) = (tag(":"), line_ending).parse(input)?;
+    many1(|i| peers_meta_dep_prop(i, indent_dep))
+        .parse(input)
+        .and_then(|(i, props)| {
+            let mut meta = DepMeta { optional: None };
+            for (prop_key, prop_val) in props {
+                #[allow(clippy::single_match)]
+                match prop_key {
+                    "optional" => {
+                        meta.optional = Some(match prop_val {
+                            "true" => true,
+                            "false" => false,
+                            _ => {
+                                return Err(nom::Err::Failure(VerboseError::from_error_kind(
+                                    "bool property not 'true' or 'false'",
+                                    nom::error::ErrorKind::Fail,
+                                )))
+                            }
+                        })
+                    }
+                    _ => {}
+                }
+            }
+            Ok((i, (dep_name, meta)))
+        })
+}
+
+fn peers_meta_dep_prop<'a>(
+    input: &'a str,
+    indent_dep: &'a str,
+) -> Res<&'a str, (&'a str, &'a str)> {
+    let (input, _) = recognize((tag(indent_dep), space1)).parse(input)?;
+    let (input, (prop_key, _, prop_val)) = (
+        take_until(":"),
+        tag(": "),
+        map(take_till_line_end, |v| {
+            v.strip_suffix("\r\n")
+                .or_else(|| v.strip_suffix("\n"))
+                .unwrap()
+        }),
+    )
+        .parse(input)?;
+    Ok((input, (prop_key, prop_val)))
 }
 
 /**
@@ -626,7 +726,8 @@ cli-table3@~0.6.1:
                     descriptors: vec![("cli-table3", "~0.6.1")],
                     dependencies: vec![("string-width", "^4.2.0")],
                     optional_dependencies: vec![("@colors/colors", "1.5.0")],
-                    integrity: "sha512-+W/5efTR7y5HRD7gACw9yQjqMVvEMLBHmboM/kPWam+H+Hmyrgjh6YncVKK122YZkXrLudzTuAukUw9FnMf7IQ=="
+                    integrity: "sha512-+W/5efTR7y5HRD7gACw9yQjqMVvEMLBHmboM/kPWam+H+Hmyrgjh6YncVKK122YZkXrLudzTuAukUw9FnMf7IQ==",
+                    ..Default::default()
                 },
                 Entry {
                     name: "@babel/helper-validator-identifier",
@@ -769,6 +870,7 @@ __metadata:
                     resolved: "@babel/plugin-transform-for-of@npm:7.16.7",
                     descriptors: vec![("@babel/plugin-transform-for-of", "npm:^7.12.1")],
                     dependencies: vec![("@babel/helper-plugin-utils", "^7.16.7")],
+                    peer_dependencies: vec![("@babel/core", "^7.0.0-0")],
                     integrity: "35c9264ee4bef814818123d70afe8b2f0a85753a0a9dc7b73f93a71cadc5d7de852f1a3e300a7c69a491705805704611de1e2ccceb5686f7828d6bca2e5a7306",
                     ..Default::default()
                 },
@@ -1183,14 +1285,14 @@ __metadata:
         "#,
             EntryItem::Dependencies(vec![("foo", "1.0 || 2.0"), ("bar", "0.3-alpha1")]),
         );
-    }
 
-    #[test]
-    fn parse_optional_dependencies_work() {
-        fn assert(input: &str, expect: EntryItem) {
-            let res = parse_optional_dependencies(input).unwrap();
-            assert_eq!(res.1, expect);
-        }
+        assert(
+            r#"            peerDependencies:
+                foo: 1.0 || 2.0
+                "bar": "0.3-alpha1"
+        "#,
+            EntryItem::PeerDependencies(vec![("foo", "1.0 || 2.0"), ("bar", "0.3-alpha1")]),
+        );
 
         assert(
             r#"            optionalDependencies:
@@ -1281,6 +1383,63 @@ __metadata:
                     "node-semver",
                     "ssh://git@github.com/npm/node-semver.git#semver:^7.5.0"
                 )],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn supports_dependencies_meta() {
+        let content = std::fs::read_to_string("tests/v2_deps_meta/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+
+        assert_eq!(
+            res.entries[2],
+            Entry {
+                name: "jsonfile",
+                version: "4.0.0",
+                resolved: "jsonfile@npm:4.0.0",
+                dependencies: vec![("graceful-fs", "^4.1.6")],
+                dependencies_meta: vec![(
+                    "graceful-fs",
+                    DepMeta {
+                        optional: Some(true),
+                    }
+                )],
+                integrity: "a40b7b64da41c84b0dc7ad753737ba240bb0dc50a94be20ec0b73459707dede69a6f89eb44b4d29e6994ed93ddf8c9b6e57f6b1f09dd707567959880ad6cee7f",
+                descriptors: vec![("jsonfile", "npm:4.0.0")],
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn supports_peer_dependencies() {
+        let content = std::fs::read_to_string("tests/peer_dependencies/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+
+        assert_eq!(
+            res.entries[4],
+            Entry {
+                name: "react-router",
+                version: "7.2.0",
+                resolved: "react-router@npm:7.2.0",
+                descriptors: vec![("react-router", "npm:^7.2.0")],
+                integrity: "05c79d86639f146aafc64351bb042acd785dbb69c7874ad8e0a3f5f3e70890b1b3ee07d0e18f8cebaffd62bca47e58d0645b07d1cc428a73ba449ce378cbef01",
+                dependencies: vec![
+                    ("@types/cookie", "^0.6.0"),
+                    ("cookie", "^1.0.1"),
+                    ("set-cookie-parser", "^2.6.0"),
+                    ("turbo-stream", "2.4.0"),
+                ],
+                peer_dependencies: vec![
+                    ("react", ">=18"),
+                    ("react-dom", ">=18"),
+                ],
+                peer_dependencies_meta: vec![("react-dom", DepMeta {
+                    optional: Some(true),
+                    ..Default::default()
+                })],
                 ..Default::default()
             }
         );
