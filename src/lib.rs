@@ -59,7 +59,7 @@ pub struct Entry<'a> {
 /// Accepts the `yarn.lock` content and returns all the entries.
 /// # Errors
 /// - `YarnLockError`
-pub fn parse_str(content: &str) -> Result<Lockfile, YarnLockError> {
+pub fn parse_str(content: &str) -> Result<Lockfile<'_>, YarnLockError> {
     parse(content).map(|(_, entries)| entries).map_err(|e| {
         e.map(|ve| {
             let errors = ve
@@ -73,7 +73,7 @@ pub fn parse_str(content: &str) -> Result<Lockfile, YarnLockError> {
     })
 }
 
-fn parse(input: &str) -> Res<&str, Lockfile> {
+fn parse(input: &str) -> Res<&str, Lockfile<'_>> {
     let (i, (is_bun, is_v1)) = yarn_lock_header(input)?;
     let (i, version) = cond(!is_v1, yarn_lock_metadata).parse(i)?;
     let (i, mut entries) = many0(entry).parse(i)?;
@@ -163,7 +163,7 @@ fn yarn_lock_metadata(input: &str) -> Res<&str, u8> {
     .parse(input)
 }
 
-fn entry_final(input: &str) -> Res<&str, Entry> {
+fn entry_final(input: &str) -> Res<&str, Entry<'_>> {
     recognize(many_till(take_till_optional_line_end, eof))
         .parse(input)
         .and_then(|(i, capture)| {
@@ -172,7 +172,7 @@ fn entry_final(input: &str) -> Res<&str, Entry> {
         })
 }
 
-fn entry(input: &str) -> Res<&str, Entry> {
+fn entry(input: &str) -> Res<&str, Entry<'_>> {
     recognize(many_till(
         take_till_line_end,
         recognize((space0, line_ending)),
@@ -194,11 +194,11 @@ enum EntryItem<'a> {
     Unknown(&'a str),
 }
 
-fn unknown_line(input: &str) -> Res<&str, EntryItem> {
+fn unknown_line(input: &str) -> Res<&str, EntryItem<'_>> {
     take_till_line_end(input).map(|(i, res)| (i, EntryItem::Unknown(res)))
 }
 
-fn integrity(input: &str) -> Res<&str, EntryItem> {
+fn integrity(input: &str) -> Res<&str, EntryItem<'_>> {
     context(
         "integrity",
         (
@@ -216,7 +216,7 @@ fn integrity(input: &str) -> Res<&str, EntryItem> {
     .map(|(i, (_, _, _, _, _, _, _, integrity))| (i, EntryItem::Integrity(integrity)))
 }
 
-fn entry_item(input: &str) -> Res<&str, EntryItem> {
+fn entry_item(input: &str) -> Res<&str, EntryItem<'_>> {
     alt((
         entry_version,
         parse_dependencies,
@@ -228,7 +228,7 @@ fn entry_item(input: &str) -> Res<&str, EntryItem> {
     .parse(input)
 }
 
-fn parse_entry(input: &str) -> Res<&str, Entry> {
+fn parse_entry(input: &str) -> Res<&str, Entry<'_>> {
     context("entry", (entry_descriptors, many1(entry_item)))
         .parse(input)
         .and_then(|(next_input, res)| {
@@ -282,7 +282,7 @@ fn dependency_version(input: &str) -> Res<&str, &str> {
     alt((double_quoted_text, not_line_ending)).parse(input)
 }
 
-fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
+fn parse_dependencies(input: &str) -> Res<&str, EntryItem<'_>> {
     let (input, (indent, _, _)) = (space1, tag("dependencies:"), line_ending).parse(input)?;
 
     let dependencies_parser = many1(move |i| {
@@ -303,7 +303,7 @@ fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
         .map(|(i, res)| (i, EntryItem::Dependencies(res)))
 }
 
-fn parse_optional_dependencies(input: &str) -> Res<&str, EntryItem> {
+fn parse_optional_dependencies(input: &str) -> Res<&str, EntryItem<'_>> {
     let (input, (indent, _, _)) =
         (space1, tag("optionalDependencies:"), line_ending).parse(input)?;
 
@@ -394,7 +394,7 @@ fn entry_descriptors<'a>(input: &'a str) -> Res<&'a str, Vec<(&'a str, &'a str)>
     .parse(input)
 }
 
-fn entry_resolved(input: &str) -> Res<&str, EntryItem> {
+fn entry_resolved(input: &str) -> Res<&str, EntryItem<'_>> {
     // "  resolved \"https://registry.yarnpkg.com/yargs/-/yargs-9.0.1.tgz#52acc23feecac34042078ee78c0c007f5085db4c\"\r\n"
     // "  resolution: \"@babel/code-frame@npm:7.18.6\"\r\n"
 
@@ -419,7 +419,7 @@ fn entry_resolved(input: &str) -> Res<&str, EntryItem> {
     .parse(input)
 }
 
-fn entry_version(input: &str) -> Res<&str, EntryItem> {
+fn entry_version(input: &str) -> Res<&str, EntryItem<'_>> {
     // "version \"7.12.13\"\r\n"
     // "version \"workspace:foobar\"\r\n"
     // "version \"https://s.lnl.gay/@a/verboden(name~'!*)/-/verboden(name~'!*)-1.0.0.tgz\"\r\n"
