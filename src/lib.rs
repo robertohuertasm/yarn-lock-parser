@@ -52,6 +52,7 @@ pub struct Entry<'a> {
     pub resolved: &'a str,
     pub integrity: &'a str,
     pub dependencies: Vec<(&'a str, &'a str)>,
+    pub optional_dependencies: Vec<(&'a str, &'a str)>,
     pub descriptors: Vec<(&'a str, &'a str)>,
 }
 
@@ -188,6 +189,7 @@ enum EntryItem<'a> {
     Version(&'a str),
     Resolved(&'a str),
     Dependencies(Vec<(&'a str, &'a str)>),
+    OptionalDependencies(Vec<(&'a str, &'a str)>),
     Integrity(&'a str),
     Unknown(&'a str),
 }
@@ -218,6 +220,7 @@ fn entry_item(input: &str) -> Res<&str, EntryItem> {
     alt((
         entry_version,
         parse_dependencies,
+        parse_optional_dependencies,
         integrity,
         entry_resolved,
         unknown_line,
@@ -239,6 +242,7 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
             let mut version = "";
             let mut resolved = "";
             let mut dependencies = Vec::new();
+            let mut optional_dependencies = Vec::new();
             let mut integrity = "";
 
             for ei in entry_items {
@@ -246,6 +250,7 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
                     EntryItem::Version(v) => version = v,
                     EntryItem::Resolved(r) => resolved = r,
                     EntryItem::Dependencies(d) => dependencies = d,
+                    EntryItem::OptionalDependencies(d) => optional_dependencies = d,
                     EntryItem::Integrity(c) => integrity = c,
                     EntryItem::Unknown(_) => (),
                 }
@@ -266,6 +271,7 @@ fn parse_entry(input: &str) -> Res<&str, Entry> {
                     resolved,
                     integrity,
                     dependencies,
+                    optional_dependencies,
                     descriptors,
                 },
             ))
@@ -295,6 +301,28 @@ fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
     context("dependencies", dependencies_parser)
         .parse(input)
         .map(|(i, res)| (i, EntryItem::Dependencies(res)))
+}
+
+fn parse_optional_dependencies(input: &str) -> Res<&str, EntryItem> {
+    let (input, (indent, _, _)) =
+        (space1, tag("optionalDependencies:"), line_ending).parse(input)?;
+
+    let optional_dependencies_parser = many1(move |i| {
+        (
+            tag(indent),  // indented as much as the parent...
+            space1,       // ... plus extra indentation
+            is_not(": "), // package name
+            one_of(": "),
+            space0,
+            dependency_version,         // version
+            alt((line_ending, space0)), // newline or space
+        )
+            .parse(i)
+            .map(|(i, (_, _, p, _, _, v, _))| (i, (p.trim_matches('"'), v)))
+    });
+    context("optionalDependencies", optional_dependencies_parser)
+        .parse(input)
+        .map(|(i, res)| (i, EntryItem::OptionalDependencies(res)))
 }
 
 /**
@@ -452,7 +480,8 @@ mod tests {
                 resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
                 descriptors: vec![("@babel/code-frame", "^7.0.0")],
                 dependencies: vec![("@babel/highlight", "^7.12.13")],
-                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g=="
+                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
+                ..Default::default()
             }
         );
 
@@ -478,7 +507,8 @@ mod tests {
                     ("y18n", "^3.2.1"),
                     ("yargs-parser", "^7.0.0"),
                 ],
-                integrity: "sha1-UqzCP+7Kw0BCB47njAwAf1CF20w="
+                integrity: "sha1-UqzCP+7Kw0BCB47njAwAf1CF20w=",
+                ..Default::default()
             }
         );
     }
@@ -565,6 +595,15 @@ mod tests {
         dependencies:
             "@babel/highlight" "^7.12.13"
 
+cli-table3@~0.6.1:
+  version "0.6.5"
+  resolved "https://registry.yarnpkg.com/cli-table3/-/cli-table3-0.6.5.tgz#013b91351762739c16a9567c21a04632e449bf2f"
+  integrity sha512-+W/5efTR7y5HRD7gACw9yQjqMVvEMLBHmboM/kPWam+H+Hmyrgjh6YncVKK122YZkXrLudzTuAukUw9FnMf7IQ==
+  dependencies:
+    string-width "^4.2.0"
+  optionalDependencies:
+    "@colors/colors" "1.5.0"
+
 "@babel/helper-validator-identifier@^7.12.11":
     version "7.12.11"
     resolved "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed"
@@ -577,7 +616,17 @@ mod tests {
                     resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
                     descriptors: vec![("@babel/code-frame", "^7.0.0")],
                     dependencies: vec![("@babel/highlight", "^7.12.13")],
-                    integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g=="
+                    integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
+                    ..Default::default()
+                },
+                Entry {
+                    name: "cli-table3",
+                    version: "0.6.5",
+                    resolved: "https://registry.yarnpkg.com/cli-table3/-/cli-table3-0.6.5.tgz#013b91351762739c16a9567c21a04632e449bf2f",
+                    descriptors: vec![("cli-table3", "~0.6.1")],
+                    dependencies: vec![("string-width", "^4.2.0")],
+                    optional_dependencies: vec![("@colors/colors", "1.5.0")],
+                    integrity: "sha512-+W/5efTR7y5HRD7gACw9yQjqMVvEMLBHmboM/kPWam+H+Hmyrgjh6YncVKK122YZkXrLudzTuAukUw9FnMf7IQ=="
                 },
                 Entry {
                     name: "@babel/helper-validator-identifier",
@@ -614,7 +663,8 @@ mod tests {
                     "sha512-TDCmlK5eOvH+eH7cdAFlNXeVJqWIQ7gW9tY1GJIpUtFb6CmjVyq2VM3u71bOyR8CRihcCgMUYoDNyLXao3+70Q=="
                 } else {
                     "195e2be3172d7684bf95cff69ae3b7a15a9841ea9d27d3c843662d50cdd7d6470fd9c8e64be84d031117e4a4083486effba39f9aef6bbb2c89f7f21bcfba33ba"
-                }
+                },
+                ..Default::default()
             }
         );
 
@@ -642,7 +692,8 @@ mod tests {
                     "sha512-t6YAJcxDkNX7NFYiVtKvWUz8l+PaKTLiL63mJYWR2GnHq2gjEWISzsLp9wg3aY36dY1j+gfIEL3pIF+XlJJfbA=="
                 } else {
                     "00d58a2c052937fa044834313f07910fd0a115dec5ee35919e857eeee3736b21a4eafa8264535800ba8bac312991ce785ecb8a51f4d2cc8c4676d865af1cfbde"
-                }
+                },
+                ..Default::default()
             }
         );
     }
@@ -719,6 +770,7 @@ __metadata:
                     descriptors: vec![("@babel/plugin-transform-for-of", "npm:^7.12.1")],
                     dependencies: vec![("@babel/helper-plugin-utils", "^7.16.7")],
                     integrity: "35c9264ee4bef814818123d70afe8b2f0a85753a0a9dc7b73f93a71cadc5d7de852f1a3e300a7c69a491705805704611de1e2ccceb5686f7828d6bca2e5a7306",
+                    ..Default::default()
                 },
                 Entry {
                     name: "@babel/runtime",
@@ -726,7 +778,8 @@ __metadata:
                     resolved: "@babel/runtime@npm:7.17.9",
                     descriptors: vec![("@babel/runtime", "npm:^7.12.5")],
                     dependencies: vec![("regenerator-runtime", "^0.13.4")],
-                    integrity: "4d56bdb82890f386d5a57c40ef985a0ed7f0a78f789377a2d0c3e8826819e0f7f16ba0fe906d9b2241c5f7ca56630ef0653f5bb99f03771f7b87ff8af4bf5fe3"
+                    integrity: "4d56bdb82890f386d5a57c40ef985a0ed7f0a78f789377a2d0c3e8826819e0f7f16ba0fe906d9b2241c5f7ca56630ef0653f5bb99f03771f7b87ff8af4bf5fe3",
+                    ..Default::default()
                 },
             ],
         );
@@ -770,6 +823,7 @@ __metadata:
                     integrity: "",
                     descriptors: vec![("foo", "workspace:.")],
                     dependencies: vec![("valib-aliased", "npm:valib@1.0.0 || 1.0.1")],
+                    ..Default::default()
                 },
                 Entry {
                     name: "valib-aliased",
@@ -778,6 +832,7 @@ __metadata:
                     integrity: "ad4f5a0b5dde5ab5e3cc87050fad4d7096c32797454d8e37c7dadf3455a43a7221a3caaa0ad9e72b8cd96668168e5a25d5f0072e21990f7f80a64b1a4e34e921",
                     descriptors: vec![("valib-aliased", "npm:valib@1.0.0 || 1.0.1")],
                     dependencies: vec![],
+                    ..Default::default()
                 },
             ],
         );
@@ -831,7 +886,8 @@ __metadata:
                         resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
                         descriptors: vec![("@babel/code-frame", "^7.0.0")],
                         dependencies: vec![("@babel/highlight", "^7.12.13")],
-                        integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g=="
+                        integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
+                        ..Default::default()
                     },
                 );
 
@@ -1130,6 +1186,38 @@ __metadata:
     }
 
     #[test]
+    fn parse_optional_dependencies_work() {
+        fn assert(input: &str, expect: EntryItem) {
+            let res = parse_optional_dependencies(input).unwrap();
+            assert_eq!(res.1, expect);
+        }
+
+        assert(
+            r#"            optionalDependencies:
+                foo "1.0"
+                "bar" "0.3-alpha1"
+        "#,
+            EntryItem::OptionalDependencies(vec![("foo", "1.0"), ("bar", "0.3-alpha1")]),
+        );
+
+        assert(
+            r#"            optionalDependencies:
+                foo "1.0 || 2.0"
+                "bar" "0.3-alpha1"
+        "#,
+            EntryItem::OptionalDependencies(vec![("foo", "1.0 || 2.0"), ("bar", "0.3-alpha1")]),
+        );
+
+        assert(
+            r#"            optionalDependencies:
+                foo: 1.0 || 2.0
+                "bar": "0.3-alpha1"
+        "#,
+            EntryItem::OptionalDependencies(vec![("foo", "1.0 || 2.0"), ("bar", "0.3-alpha1")]),
+        );
+    }
+
+    #[test]
     fn take_till_the_end_works() {
         let k = take_till_line_end("foo\r\nbar").unwrap();
         assert_eq!(k.0, "bar");
@@ -1171,6 +1259,7 @@ __metadata:
                     "minimatch",
                     "https://github.com/isaacs/minimatch.git#v10.0.1"
                 )],
+                ..Default::default()
             }
         );
     }
@@ -1192,6 +1281,7 @@ __metadata:
                     "node-semver",
                     "ssh://git@github.com/npm/node-semver.git#semver:^7.5.0"
                 )],
+                ..Default::default()
             }
         );
     }
@@ -1214,6 +1304,7 @@ __metadata:
                     "@a/verboden(name~'!*)",
                     "https://s.lnl.gay/@a/verboden(name~'!*)/-/verboden(name~'!*)-1.0.0.tgz"
                 ),],
+                ..Default::default()
             }
         )
     }
