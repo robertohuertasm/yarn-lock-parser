@@ -304,7 +304,8 @@ fn parse_dependencies(input: &str) -> Res<&str, EntryItem> {
 }
 
 fn parse_optional_dependencies(input: &str) -> Res<&str, EntryItem> {
-    let (input, (indent, _, _)) = (space1, tag("optionalDependencies:"), line_ending).parse(input)?;
+    let (input, (indent, _, _)) =
+        (space1, tag("optionalDependencies:"), line_ending).parse(input)?;
 
     let optional_dependencies_parser = many1(move |i| {
         (
