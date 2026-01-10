@@ -1,9 +1,8 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_till, take_until},
-    character::{
-        complete::{digit1, line_ending, not_line_ending, one_of, space0, space1},
-        streaming::multispace0,
+    character::complete::{
+        digit1, line_ending, multispace0, not_line_ending, one_of, space0, space1,
     },
     combinator::{cond, eof, map, map_res, opt, recognize},
     error::{context, ParseError},
@@ -1307,5 +1306,14 @@ __metadata:
                 ..Default::default()
             }
         )
+    }
+
+    #[test]
+    fn empty_lockfile() {
+        let content = std::fs::read_to_string("tests/v1_empty/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+        assert_eq!(res.entries, []);
+        assert_eq!(res.generator, Generator::Yarn);
+        assert_eq!(res.version, 1);
     }
 }
