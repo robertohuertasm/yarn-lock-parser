@@ -29,10 +29,12 @@ pub enum YarnLockError {
 
 /// A parsed yarn.lock file.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Lockfile<'a> {
     pub entries: Vec<Entry<'a>>,
     pub generator: Generator,
     pub version: u8,
+    pub cache_key: Option<&'a str>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -78,7 +80,7 @@ pub fn parse_str(content: &str) -> Result<Lockfile<'_>, YarnLockError> {
 
 fn parse(input: &str) -> Res<&str, Lockfile<'_>> {
     let (i, (is_bun, is_v1)) = yarn_lock_header(input)?;
-    let (i, version) = cond(!is_v1, yarn_lock_metadata).parse(i)?;
+    let (i, metadata) = cond(!is_v1, yarn_lock_metadata).parse(i)?;
     let (i, mut entries) = many0(entry).parse(i)?;
 
     let generator = if is_bun {
@@ -86,9 +88,9 @@ fn parse(input: &str) -> Res<&str, Lockfile<'_>> {
     } else {
         Generator::Yarn
     };
-    let version = match (is_v1, version) {
-        (true, None) => 1,
-        (false, Some(v)) => v,
+    let (version, cache_key) = match (is_v1, metadata) {
+        (true, None) => (1, None),
+        (false, Some(m)) => m,
         // This shouldn't happen.
         (true, Some(_)) | (false, None) => unreachable!(),
     };
@@ -101,6 +103,7 @@ fn parse(input: &str) -> Res<&str, Lockfile<'_>> {
                 entries,
                 generator,
                 version,
+                cache_key,
             },
         ));
     }
@@ -114,6 +117,7 @@ fn parse(input: &str) -> Res<&str, Lockfile<'_>> {
             entries,
             generator,
             version,
+            cache_key,
         },
     ))
 }
@@ -148,16 +152,22 @@ fn yarn_lock_header(input: &str) -> Res<&str, (bool, bool)> {
     Ok((input, (is_bun, is_v1)))
 }
 
-fn yarn_lock_metadata(input: &str) -> Res<&str, u8> {
+fn yarn_lock_metadata(input: &str) -> Res<&str, (u8, Option<&str>)> {
     context(
         "metadata",
         terminated(
-            preceded(
-                (tag("__metadata:"), line_ending, space1, tag("version: ")),
-                map_res(digit1, |d: &str| d.parse()),
+            (
+                delimited(
+                    (tag("__metadata:"), line_ending, space1, tag("version: ")),
+                    map_res(digit1, |d: &str| d.parse()),
+                    line_ending,
+                ),
+                opt(preceded(
+                    (space1, tag("cacheKey: ")),
+                    recognize((digit1, opt((tag("c"), digit1)))),
+                )),
             ),
             (
-                line_ending,
                 many_till(take_till_line_end, (space0, line_ending)),
                 multispace0,
             ),
@@ -1468,11 +1478,23 @@ __metadata:
     }
 
     #[test]
+
     fn empty_lockfile() {
         let content = std::fs::read_to_string("tests/v1_empty/yarn.lock").unwrap();
         let res = parse_str(&content).unwrap();
         assert_eq!(res.entries, []);
         assert_eq!(res.generator, Generator::Yarn);
         assert_eq!(res.version, 1);
+    }
+
+    #[test]
+    fn parses_cache_key() {
+        let content = std::fs::read_to_string("tests/v2/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+        assert_eq!(res.cache_key, Some("8"));
+
+        let content = std::fs::read_to_string("tests/v2_cache_key/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+        assert_eq!(res.cache_key, Some("10c0"));
     }
 }
