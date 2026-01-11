@@ -1,14 +1,14 @@
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::{is_not, tag, take, take_till, take_until},
     character::complete::{
         digit1, line_ending, multispace0, not_line_ending, one_of, space0, space1,
     },
     combinator::{cond, eof, map, map_res, opt, recognize},
-    error::{context, ParseError},
-    multi::{count, many0, many1, many_till, separated_list1},
+    error::{ParseError, context},
+    multi::{count, many_till, many0, many1, separated_list1},
     sequence::{delimited, preceded, terminated},
-    IResult, Parser,
 };
 use nom_language::error::VerboseError;
 
@@ -405,7 +405,7 @@ fn deps_meta_dep<'a>(input: &'a str, indent_top: &'a str) -> Res<&'a str, (&'a s
                                 return Err(nom::Err::Failure(VerboseError::from_error_kind(
                                     "bool property not 'true' or 'false'",
                                     nom::error::ErrorKind::Fail,
-                                )))
+                                )));
                             }
                         })
                     }
@@ -970,20 +970,20 @@ __metadata:
         );
 
         assert(
-                    "\"@babel/code-frame@^7.0.0\":\n  version \"7.12.13\"\n  resolved \"https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658\"\n  integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==\n  dependencies:\n    \"@babel/highlight\" \"^7.12.13\"\n\n",
-                    Entry {
-                        name: "@babel/code-frame",
-                        version: "7.12.13",
-                        resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
-                        descriptors: vec![("@babel/code-frame", "^7.0.0")],
-                        dependencies: vec![("@babel/highlight", "^7.12.13")],
-                        integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
-                        ..Default::default()
-                    },
-                );
+            "\"@babel/code-frame@^7.0.0\":\n  version \"7.12.13\"\n  resolved \"https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658\"\n  integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==\n  dependencies:\n    \"@babel/highlight\" \"^7.12.13\"\n\n",
+            Entry {
+                name: "@babel/code-frame",
+                version: "7.12.13",
+                resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
+                descriptors: vec![("@babel/code-frame", "^7.0.0")],
+                dependencies: vec![("@babel/highlight", "^7.12.13")],
+                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
+                ..Default::default()
+            },
+        );
 
         assert(
-                    r#""@babel/code-frame@^7.0.0":
+            r#""@babel/code-frame@^7.0.0":
             version "7.12.13"
             resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658"
             integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==
@@ -991,52 +991,52 @@ __metadata:
                 "@babel/highlight" "^7.12.13"
 
          "#,
-                    Entry {
-                        name: "@babel/code-frame",
-                        version: "7.12.13",
-                        resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
-                        descriptors: vec![("@babel/code-frame", "^7.0.0")],
-                        dependencies: vec![("@babel/highlight", "^7.12.13")],
-                        integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
-                        ..Default::default()
-                    },
-                );
+            Entry {
+                name: "@babel/code-frame",
+                version: "7.12.13",
+                resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
+                descriptors: vec![("@babel/code-frame", "^7.0.0")],
+                dependencies: vec![("@babel/highlight", "^7.12.13")],
+                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
+                ..Default::default()
+            },
+        );
 
         // with final spaces
         assert(
-                    r#""@babel/helper-validator-identifier@^7.12.11":
+            r#""@babel/helper-validator-identifier@^7.12.11":
             version "7.12.11"
             resolved "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed"
             integrity sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==
 
          "#,
-                    Entry {
-                        name: "@babel/helper-validator-identifier",
-                        version: "7.12.11",
-                        resolved: "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed",
-                        descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
-                        integrity: "sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==",
-                        ..Default::default()
-                    },
-                );
+            Entry {
+                name: "@babel/helper-validator-identifier",
+                version: "7.12.11",
+                resolved: "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed",
+                descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
+                integrity: "sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==",
+                ..Default::default()
+            },
+        );
 
         // without final spaces
         assert(
-                    r#""@babel/helper-validator-identifier@^7.12.11":
+            r#""@babel/helper-validator-identifier@^7.12.11":
             version "7.12.11"
             resolved "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed"
             integrity sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==
 
         "#,
-                    Entry {
-                        name: "@babel/helper-validator-identifier",
-                        version: "7.12.11",
-                        resolved: "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed",
-                        descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
-                        integrity: "sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==",
-                        ..Default::default()
-                    },
-                );
+            Entry {
+                name: "@babel/helper-validator-identifier",
+                version: "7.12.11",
+                resolved: "https://registry.yarnpkg.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.12.11.tgz#c9a1f021917dcb5ccf0d4e453e399022981fc9ed",
+                descriptors: vec![("@babel/helper-validator-identifier", "^7.12.11")],
+                integrity: "sha512-np/lG3uARFybkoHokJUmf1QfEvRVCPbmQeUQpKow5cQ3xWrV9i3rUHodKDJPQfTVX61qKi+UdYk8kik84n7XOw==",
+                ..Default::default()
+            },
+        );
     }
 
     #[test]
@@ -1075,7 +1075,7 @@ __metadata:
 
         // normal
         assert(
-                    r#""@babel/code-frame@^7.0.0":
+            r#""@babel/code-frame@^7.0.0":
             version "7.12.13"
             resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658"
             integrity sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==
@@ -1083,16 +1083,16 @@ __metadata:
                 "@babel/highlight" "^7.12.13"
 
         "#,
-                    Entry {
-                        name: "@babel/code-frame",
-                        version: "7.12.13",
-                        resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
-                        descriptors: vec![("@babel/code-frame", "^7.0.0")],
-                        dependencies: vec![("@babel/highlight", "^7.12.13")],
-                        integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
-                        ..Default::default()
-                    },
-                );
+            Entry {
+                name: "@babel/code-frame",
+                version: "7.12.13",
+                resolved: "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz#dcfc826beef65e75c50e21d3837d7d95798dd658",
+                descriptors: vec![("@babel/code-frame", "^7.0.0")],
+                dependencies: vec![("@babel/highlight", "^7.12.13")],
+                integrity: "sha512-HV1Cm0Q3ZrpCR93tkWOYiuYIgLxZXZFVG2VgK+MBWjUqZTundupbfx2aXarXuw5Ko5aMcjtJgbSs4vUGBS5v6g==",
+                ..Default::default()
+            },
+        );
     }
 
     #[test]
@@ -1260,7 +1260,9 @@ __metadata:
         assert(
             r#" checksum: fb47e70bf0001fdeabdc0429d431863e9475e7e43ea5f94ad86503d918423c1543361cc5166d713eaa7029dd7a3d34775af04764bebff99ef413111a5af18c80
         "#,
-            EntryItem::Integrity("fb47e70bf0001fdeabdc0429d431863e9475e7e43ea5f94ad86503d918423c1543361cc5166d713eaa7029dd7a3d34775af04764bebff99ef413111a5af18c80"),
+            EntryItem::Integrity(
+                "fb47e70bf0001fdeabdc0429d431863e9475e7e43ea5f94ad86503d918423c1543361cc5166d713eaa7029dd7a3d34775af04764bebff99ef413111a5af18c80",
+            ),
         );
     }
 
@@ -1441,14 +1443,14 @@ __metadata:
                     ("set-cookie-parser", "^2.6.0"),
                     ("turbo-stream", "2.4.0"),
                 ],
-                peer_dependencies: vec![
-                    ("react", ">=18"),
-                    ("react-dom", ">=18"),
-                ],
-                peer_dependencies_meta: vec![("react-dom", DepMeta {
-                    optional: Some(true),
-                    ..Default::default()
-                })],
+                peer_dependencies: vec![("react", ">=18"), ("react-dom", ">=18"),],
+                peer_dependencies_meta: vec![(
+                    "react-dom",
+                    DepMeta {
+                        optional: Some(true),
+                        ..Default::default()
+                    }
+                )],
                 ..Default::default()
             }
         );

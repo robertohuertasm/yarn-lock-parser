@@ -1,12 +1,12 @@
 [package]
 name = "yarn-lock-parser"
 description = "yarn.lock parser"
-version = "0.12.0"
+version = "0.13.0"
 authors = [
   "Roberto Huertas <roberto.huertas@outlook.com>",
   "Riccardo Attilio Galli <riccardo@sideralis.org>",
 ]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/robertohuertasm/yarn-lock-parser"
 readme = "README.md"
@@ -21,4 +21,4 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 nom = "8.0.0"
 nom-language = "0.1.0"
-thiserror = "2.0.11"
+thiserror = "2.0.17"
