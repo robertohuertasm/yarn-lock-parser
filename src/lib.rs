@@ -388,7 +388,7 @@ fn parse_deps_meta(input: &str) -> Res<&str, EntryItem<'_>> {
 
 fn deps_meta_dep<'a>(input: &'a str, indent_top: &'a str) -> Res<&'a str, (&'a str, DepMeta)> {
     let (input, indent_dep) = recognize((tag(indent_top), space1)).parse(input)?;
-    let (input, dep_name) = take_until(":")(input)?;
+    let (input, dep_name) = alt((double_quoted_text, take_until(":"))).parse(input)?;
     let (input, _) = (tag(":"), line_ending).parse(input)?;
     many1(|i| peers_meta_dep_prop(i, indent_dep))
         .parse(input)
@@ -1425,6 +1425,31 @@ __metadata:
                 )],
                 integrity: "a40b7b64da41c84b0dc7ad753737ba240bb0dc50a94be20ec0b73459707dede69a6f89eb44b4d29e6994ed93ddf8c9b6e57f6b1f09dd707567959880ad6cee7f",
                 descriptors: vec![("jsonfile", "npm:4.0.0")],
+                ..Default::default()
+            }
+        );
+
+        let content = std::fs::read_to_string("tests/v2_deps_meta_quoted/yarn.lock").unwrap();
+        let res = parse_str(&content).unwrap();
+        assert_eq!(
+            res.entries[2],
+            Entry {
+                name: "@bufbuild/protoc-gen-es",
+                version: "1.10.1",
+                integrity: "ac75c370aeeac43e835e679e7cd8c7f3ed746648ab59fc2538dacf7702a918a7dc8d2d53babe08f43e505c01bdcd5cf4bc0d3d2ef23d50e0cede67c82a742489",
+                resolved: "@bufbuild/protoc-gen-es@npm:1.10.1",
+                dependencies: vec![
+                    ("@bufbuild/protobuf", "^1.10.1"),
+                    ("@bufbuild/protoplugin", "1.10.1"),
+                ],
+                peer_dependencies: vec![("@bufbuild/protobuf", "1.10.1"),],
+                peer_dependencies_meta: vec![(
+                    "@bufbuild/protobuf",
+                    DepMeta {
+                        optional: Some(true),
+                    }
+                )],
+                descriptors: vec![("@bufbuild/protoc-gen-es", "npm:^1.8")],
                 ..Default::default()
             }
         );
