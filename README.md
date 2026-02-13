@@ -18,20 +18,20 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-yarn-lock-parser = "0.13"
+yarn-lock-parser = "0.14"
 ```
 
 ## Quick Start
 
 ```rust
 use std::{error::Error, fs};
-use yarn_lock_parser::{parse_str, Entry};
+use yarn_lock_parser::parse_str;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let yarn_lock_text = fs::read_to_string("yarn.lock")?;
-    let entries: Vec<Entry> = parse_str(&yarn_lock_text)?;
+    let lockfile = parse_str(&yarn_lock_text)?;
 
-    for entry in entries {
+    for entry in lockfile.entries {
         println!("{:?}", entry);
     }
 
